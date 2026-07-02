@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  :root { font-family: Inter, system-ui, sans-serif; }
+  body { margin: 0; padding: 12px; font-size: 12px; color: #1e1e1e; }
+  h2 { font-size: 13px; margin: 0 0 8px; }
+  .toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
+  button {
+    font-size: 11px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid #d0d0d0;
+    background: #f5f5f5;
+    cursor: pointer;
+  }
+  button.primary { background: #18a0fb; color: white; border-color: #18a0fb; }
+  button:hover { opacity: 0.9; }
+  .empty { color: #888; padding: 8px 0; }
+  .relation {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 0;
+    border-bottom: 1px solid #eee;
+  }
+  .relation .name { font-weight: 600; }
+  .relation .label { color: #888; font-style: italic; flex: 1; text-align: center; }
+  .boxes { margin-bottom: 12px; }
+  .box-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: #eee;
+    color: #666;
+  }
+  .badge.fallback { background: #fde3e3; color: #b23c3c; }
+  h3 { font-size: 12px; margin: 12px 0 4px; color: #666; }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #555;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .icon-btn:hover { background: #eef6ff; border-color: #18a0fb; color: #18a0fb; }
+  .icon-btn svg { width: 14px; height: 14px; }
+  .box-row .name { flex: 1; }
+  textarea {
+    width: 100%;
+    height: 320px;
+    box-sizing: border-box;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #d0d0d0;
+    resize: vertical;
+  }
+  .status { color: #888; margin-top: 8px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <h2>C4 Relations</h2>
+  <div class="toolbar">
+    <button id="refresh">Refresh</button>
+    <button id="export" class="primary">Export Mermaid</button>
+    <button id="back" class="hidden">Back to list</button>
+  </div>
+
+  <div id="list-view">
+    <h3>Boxes (<span id="box-count">0</span>)</h3>
+    <div class="boxes" id="boxes"></div>
+    <h3>Relations (<span id="relation-count">0</span>)</h3>
+    <div id="relations"></div>
+  </div>
+
+  <div id="export-view" class="hidden">
+    <textarea id="mermaid-output" readonly></textarea>
+    <div class="toolbar">
+      <button id="copy" class="primary">Copy to clipboard</button>
+    </div>
+    <div id="copy-status" class="status"></div>
+  </div>
+
+  <script>
+    let currentBoxes = [];
+    let currentRelations = [];
+
+    const relationsEl = document.getElementById('relations');
+    const listView = document.getElementById('list-view');
+    const exportView = document.getElementById('export-view');
+    const backBtn = document.getElementById('back');
+    const exportBtn = document.getElementById('export');
+    const mermaidOutput = document.getElementById('mermaid-output');
+    const copyBtn = document.getElementById('copy');
+    const copyStatus = document.getElementById('copy-status');
+
+    document.getElementById('refresh').onclick = () => {
+      parent.postMessage({ pluginMessage: { type: 'extract' } }, '*');
+    };
+
+    exportBtn.onclick = () => {
+      mermaidOutput.value = toMermaidC4(currentBoxes, currentRelations);
+      listView.classList.add('hidden');
+      exportView.classList.remove('hidden');
+      backBtn.classList.remove('hidden');
+      exportBtn.classList.add('hidden');
+      copyStatus.textContent = '';
+    };
+
+    backBtn.onclick = () => {
+      exportView.classList.add('hidden');
+      listView.classList.remove('hidden');
+      backBtn.classList.add('hidden');
+      exportBtn.classList.remove('hidden');
+    };
+
+    copyBtn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(mermaidOutput.value);
+        copyStatus.textContent = 'Copied to clipboard.';
+      } catch (e) {
+        mermaidOutput.select();
+        document.execCommand('copy');
+        copyStatus.textContent = 'Copied to clipboard.';
+      }
+    };
+
+    const boxesEl = document.getElementById('boxes');
+    const boxCountEl = document.getElementById('box-count');
+    const relationCountEl = document.getElementById('relation-count');
+
+    function renderBoxes() {
+      boxCountEl.textContent = currentBoxes.length;
+      boxesEl.innerHTML = '';
+      if (currentBoxes.length === 0) {
+        boxesEl.innerHTML = '<div class="empty">No boxes resolved yet.</div>';
+        return;
+      }
+      currentBoxes.forEach((b) => {
+        const row = document.createElement('div');
+        row.className = 'box-row';
+        const isFallback = b.labelSource === 'node-name-fallback';
+        row.innerHTML =
+          '<button class="icon-btn" data-id="' + escapeHtml(b.id) + '" title="Ir al elemento en el lienzo">' +
+            LOCATE_ICON_SVG +
+          '</button>' +
+          '<span class="name">' + escapeHtml(b.name) + '</span>' +
+          '<span class="badge">' + escapeHtml(b.nodeType) + '</span>' +
+          '<span class="badge' + (isFallback ? ' fallback' : '') + '">' + escapeHtml(b.labelSource) + '</span>';
+        boxesEl.appendChild(row);
+      });
+    }
+
+    const LOCATE_ICON_SVG =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+      'stroke-linecap="round" stroke-linejoin="round">' +
+      '<circle cx="12" cy="12" r="3"></circle>' +
+      '<path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path>' +
+      '</svg>';
+
+    boxesEl.addEventListener('click', (event) => {
+      const btn = event.target.closest('.icon-btn');
+      if (!btn) return;
+      const id = btn.getAttribute('data-id');
+      if (id) {
+        parent.postMessage({ pluginMessage: { type: 'focus', id } }, '*');
+      }
+    });
+
+    function renderRelations() {
+      relationCountEl.textContent = currentRelations.length;
+      relationsEl.innerHTML = '';
+      if (currentRelations.length === 0) {
+        relationsEl.innerHTML = '<div class="empty">No connectors found between shapes on this page.</div>';
+        return;
+      }
+      currentRelations.forEach((r) => {
+        const row = document.createElement('div');
+        row.className = 'relation';
+        row.innerHTML =
+          '<span class="name">' + escapeHtml(r.sourceName) + '</span>' +
+          '<span class="label">&rarr; ' + (r.label ? escapeHtml(r.label) : '') + ' &rarr;</span>' +
+          '<span class="name">' + escapeHtml(r.targetName) + '</span>';
+        relationsEl.appendChild(row);
+      });
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    function slugify(name, used) {
+      let base = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      if (!base) base = 'node';
+      if (/^[0-9]/.test(base)) base = 'n_' + base;
+      let id = base;
+      let i = 1;
+      while (used.has(id)) {
+        id = base + '_' + (i++);
+      }
+      used.add(id);
+      return id;
+    }
+
+    function toMermaidC4(boxes, relations) {
+      const used = new Set();
+      const idMap = new Map();
+      boxes.forEach((b) => idMap.set(b.id, slugify(b.name, used)));
+
+      const lines = ['C4Container', ''];
+      boxes.forEach((b) => {
+        const id = idMap.get(b.id);
+        const label = b.name.replace(/"/g, '\\"');
+        lines.push('Container(' + id + ', "' + label + '")');
+      });
+      lines.push('');
+      relations.forEach((r) => {
+        const s = idMap.get(r.source);
+        const t = idMap.get(r.target);
+        if (!s || !t) return;
+        const label = (r.label || '').replace(/"/g, '\\"');
+        lines.push('Rel(' + s + ', ' + t + ', "' + label + '")');
+      });
+      return lines.join('\n');
+    }
+
+    window.onmessage = (event) => {
+      const msg = event.data.pluginMessage;
+      if (!msg) return;
+      if (msg.type === 'relations') {
+        currentBoxes = msg.boxes || [];
+        currentRelations = msg.relations || [];
+        renderBoxes();
+        renderRelations();
+      }
+    };
+  </script>
+</body>
+</html>

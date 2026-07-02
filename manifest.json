@@ -1,0 +1,11 @@
+{
+  "name": "Extract C4 from FigJam",
+  "id": "extract-c4-from-figjam",
+  "api": "1.0.0",
+  "editorType": ["figjam"],
+  "main": "dist/code.js",
+  "ui": "ui.html",
+  "networkAccess": {
+    "allowedDomains": ["none"]
+  }
+}

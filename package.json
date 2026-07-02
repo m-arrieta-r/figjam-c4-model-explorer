@@ -1,0 +1,16 @@
+{
+  "name": "extract-c4-from-figjam",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FigJam plugin that extracts relations between shapes (via connectors) and exports them as Mermaid C4 diagram code.",
+  "scripts": {
+    "build": "esbuild src/code.ts --bundle --target=es2017 --outfile=dist/code.js",
+    "watch": "esbuild src/code.ts --bundle --target=es2017 --outfile=dist/code.js --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.99.0",
+    "esbuild": "^0.23.0",
+    "typescript": "^5.5.0"
+  }
+}
