@@ -196,12 +196,24 @@
         const row = document.createElement('div');
         row.className = 'relation';
         row.innerHTML =
+          '<button class="icon-btn" data-id="' + escapeHtml(r.id) + '" title="Ir al conector en el lienzo">' +
+            LOCATE_ICON_SVG +
+          '</button>' +
           '<span class="name">' + escapeHtml(r.sourceName) + '</span>' +
           '<span class="label">&rarr; ' + (r.label ? escapeHtml(r.label) : '') + ' &rarr;</span>' +
           '<span class="name">' + escapeHtml(r.targetName) + '</span>';
         relationsEl.appendChild(row);
       });
     }
+
+    relationsEl.addEventListener('click', (event) => {
+      const btn = event.target.closest('.icon-btn');
+      if (!btn) return;
+      const id = btn.getAttribute('data-id');
+      if (id) {
+        parent.postMessage({ pluginMessage: { type: 'focus', id } }, '*');
+      }
+    });
 
     function escapeHtml(str) {
       return String(str).replace(/[&<>"']/g, (c) => ({

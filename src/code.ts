@@ -154,6 +154,19 @@ function runExtraction() {
   figma.ui.postMessage({ type: "relations", ...result });
 }
 
+interface ResolvedEndpointRef {
+  id: string;
+  type: string;
+  name: string;
+}
+
+interface EndpointSummary {
+  endpointNodeId?: string;
+  magnet?: string;
+  position?: { x: number; y: number };
+  resolvedNode?: ResolvedEndpointRef | null;
+}
+
 interface NodeSummary {
   id: string;
   type: string;
@@ -163,6 +176,28 @@ interface NodeSummary {
   characters?: string;
   childCount?: number;
   children?: NodeSummary[];
+  connectorStart?: EndpointSummary;
+  connectorEnd?: EndpointSummary;
+}
+
+function summarizeEndpoint(endpoint: ConnectorEndpoint | null): EndpointSummary | undefined {
+  if (!endpoint) return undefined;
+
+  const summary: EndpointSummary = {};
+
+  if ("endpointNodeId" in endpoint) {
+    summary.endpointNodeId = endpoint.endpointNodeId;
+    const resolved = figma.getNodeById(endpoint.endpointNodeId);
+    summary.resolvedNode = resolved ? { id: resolved.id, type: resolved.type, name: resolved.name } : null;
+  }
+  if ("magnet" in endpoint) {
+    summary.magnet = endpoint.magnet;
+  }
+  if ("position" in endpoint) {
+    summary.position = endpoint.position;
+  }
+
+  return summary;
 }
 
 function summarizeNode(node: BaseNode, depth = 4): NodeSummary {
@@ -182,6 +217,12 @@ function summarizeNode(node: BaseNode, depth = 4): NodeSummary {
   const withChars = node as unknown as { characters?: string };
   if (typeof withChars.characters === "string") {
     summary.characters = withChars.characters;
+  }
+
+  if (node.type === "CONNECTOR") {
+    const connector = node as ConnectorNode;
+    summary.connectorStart = summarizeEndpoint(connector.connectorStart);
+    summary.connectorEnd = summarizeEndpoint(connector.connectorEnd);
   }
 
   if ("children" in node) {
