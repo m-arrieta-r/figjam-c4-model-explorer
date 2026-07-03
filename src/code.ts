@@ -5,6 +5,8 @@ interface Box {
   name: string;
   nodeType: string;
   labelSource: string;
+  technology: string | null;
+  description: string | null;
 }
 
 interface Relation {
@@ -22,41 +24,57 @@ interface ExtractResult {
   skipped: number;
 }
 
-interface LabelResult {
-  label: string;
-  source: string;
+interface BoxDetails {
+  name: string;
+  nameSource: string;
+  technology: string | null;
+  description: string | null;
+}
+
+interface TextGroup {
+  parentId: string;
+  parentName: string;
+  texts: string[];
 }
 
 // Punctuation-only runs (e.g. "[", "]") are decorative fragments some C4 shape
-// libraries use to wrap a "[Type]" annotation across separate text nodes.
+// libraries use to wrap a "[Technology]" annotation across separate text nodes.
 function isMeaningfulText(text: string): boolean {
   return /[\p{L}\p{N}]/u.test(text);
 }
 
-// Breadth-first: the box's title text tends to sit closer to the root than
-// nested decorative labels (like a "[Software System]" type annotation buried
-// in a "Subtitle" sub-frame), so BFS finds the real title before those.
-function findFirstTextDescendant(node: BaseNode): string | null {
-  if (!("children" in node)) return null;
+// Collects each container's own direct TEXT children as one group, walked
+// depth-first. This keeps a bracket annotation like "[" + "Software System" +
+// "]" together (they share the same parent frame, e.g. "Subtitle"), separate
+// from the title text and from a "Description" frame's paragraph.
+function collectTextGroups(node: BaseNode): TextGroup[] {
+  const groups: TextGroup[] = [];
 
-  const queue: BaseNode[] = [...(node as ChildrenMixin).children];
-  while (queue.length > 0) {
-    const current = queue.shift() as BaseNode;
-    if (current.type === "TEXT") {
-      const characters = (current as TextNode).characters.trim();
-      if (characters && isMeaningfulText(characters)) return characters;
-      continue;
+  function walk(n: BaseNode) {
+    if (!("children" in n)) return;
+    const children = (n as ChildrenMixin).children;
+    const textChildren = children.filter((c): c is TextNode => c.type === "TEXT");
+    const texts = textChildren.map((t) => t.characters.trim()).filter((t) => t.length > 0);
+    if (texts.length > 0) {
+      groups.push({ parentId: n.id, parentName: n.name, texts });
     }
-    if ("children" in current) {
-      queue.push(...(current as ChildrenMixin).children);
-    }
+    children.forEach((c) => {
+      if (c.type !== "TEXT") walk(c);
+    });
   }
-  return null;
+
+  walk(node);
+  return groups;
 }
 
-function getLabel(node: BaseNode | null): LabelResult {
-  if (!node) return { label: "Unknown", source: "missing-node" };
+// Extracts the title, technology (bracketed annotation, e.g. "[Software
+// System]" or "[Container: Java, Spring]") and description of a C4 box.
+function extractBoxDetails(node: BaseNode | null): BoxDetails {
+  if (!node) {
+    return { name: "Unknown", nameSource: "missing-node", technology: null, description: null };
+  }
 
+  // Simple text-bearing nodes (shape-with-text, sticky, plain text) - use directly.
   const withText = node as unknown as { text?: { characters?: string } };
   if (
     withText.text &&
@@ -64,24 +82,59 @@ function getLabel(node: BaseNode | null): LabelResult {
     withText.text.characters.trim() &&
     isMeaningfulText(withText.text.characters)
   ) {
-    return { label: withText.text.characters.trim(), source: "text-sublayer" };
+    return {
+      name: withText.text.characters.trim(),
+      nameSource: "text-sublayer",
+      technology: null,
+      description: null,
+    };
   }
-
   const withChars = node as unknown as { characters?: string };
   if (
     typeof withChars.characters === "string" &&
     withChars.characters.trim() &&
     isMeaningfulText(withChars.characters)
   ) {
-    return { label: withChars.characters.trim(), source: "characters" };
+    return { name: withChars.characters.trim(), nameSource: "characters", technology: null, description: null };
   }
 
-  const descendantText = findFirstTextDescendant(node);
-  if (descendantText) {
-    return { label: descendantText, source: "descendant-text" };
+  // Structured container (e.g. a C4 shape template): classify each text group.
+  const groups = collectTextGroups(node);
+
+  let technology: string | null = null;
+  let description: string | null = null;
+
+  for (const group of groups) {
+    const joinedRaw = group.texts.join("");
+    if (technology === null && /^\[.*\]$/.test(joinedRaw)) {
+      const inner = group.texts
+        .filter((t) => t !== "[" && t !== "]")
+        .join(" ")
+        .trim();
+      technology = inner || null;
+    } else if (description === null && /description/i.test(group.parentName)) {
+      const joined = group.texts.join(" ").trim();
+      if (joined) description = joined;
+    }
   }
 
-  return { label: node.name, source: "node-name-fallback" };
+  let name: string | null = null;
+  for (const group of groups) {
+    const joinedRaw = group.texts.join("");
+    if (/^\[.*\]$/.test(joinedRaw)) continue;
+    if (/description/i.test(group.parentName)) continue;
+    const joined = group.texts.join(" ").trim();
+    if (joined && isMeaningfulText(joined)) {
+      name = joined;
+      break;
+    }
+  }
+
+  if (name) {
+    return { name, nameSource: "descendant-text", technology, description };
+  }
+
+  return { name: node.name, nameSource: "node-name-fallback", technology, description };
 }
 
 function extractRelations(): ExtractResult {
@@ -106,29 +159,33 @@ function extractRelations(): ExtractResult {
     const targetId = end.endpointNodeId;
     const sourceNode = figma.getNodeById(sourceId);
     const targetNode = figma.getNodeById(targetId);
-    const sourceLabel = getLabel(sourceNode);
-    const targetLabel = getLabel(targetNode);
+    const sourceDetails = extractBoxDetails(sourceNode);
+    const targetDetails = extractBoxDetails(targetNode);
 
     console.log(
       `[extract-c4] connector ${connector.id}: ` +
-        `${sourceNode?.type ?? "null"}#${sourceId} "${sourceLabel.label}" (${sourceLabel.source}) -> ` +
-        `${targetNode?.type ?? "null"}#${targetId} "${targetLabel.label}" (${targetLabel.source})`
+        `${sourceNode?.type ?? "null"}#${sourceId} "${sourceDetails.name}" (${sourceDetails.nameSource}) -> ` +
+        `${targetNode?.type ?? "null"}#${targetId} "${targetDetails.name}" (${targetDetails.nameSource})`
     );
 
     if (!boxMap.has(sourceId)) {
       boxMap.set(sourceId, {
         id: sourceId,
-        name: sourceLabel.label,
+        name: sourceDetails.name,
         nodeType: sourceNode?.type ?? "unknown",
-        labelSource: sourceLabel.source,
+        labelSource: sourceDetails.nameSource,
+        technology: sourceDetails.technology,
+        description: sourceDetails.description,
       });
     }
     if (!boxMap.has(targetId)) {
       boxMap.set(targetId, {
         id: targetId,
-        name: targetLabel.label,
+        name: targetDetails.name,
         nodeType: targetNode?.type ?? "unknown",
-        labelSource: targetLabel.source,
+        labelSource: targetDetails.nameSource,
+        technology: targetDetails.technology,
+        description: targetDetails.description,
       });
     }
 
@@ -138,8 +195,8 @@ function extractRelations(): ExtractResult {
       id: connector.id,
       source: sourceId,
       target: targetId,
-      sourceName: sourceLabel.label,
-      targetName: targetLabel.label,
+      sourceName: sourceDetails.name,
+      targetName: targetDetails.name,
       label,
     });
   }

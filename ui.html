@@ -28,12 +28,30 @@
   .relation .name { font-weight: 600; }
   .relation .label { color: #888; font-style: italic; flex: 1; text-align: center; }
   .boxes { margin-bottom: 12px; }
+  .box-item {
+    padding: 4px 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
   .box-row {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 0;
-    border-bottom: 1px solid #f0f0f0;
+  }
+  .box-detail {
+    margin: 2px 0 0 28px;
+    color: #666;
+  }
+  .box-detail .tech {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: #eef6ff;
+    color: #1a6fb0;
+    margin-right: 6px;
+  }
+  .box-detail .desc {
+    font-style: italic;
   }
   .badge {
     font-size: 10px;
@@ -155,6 +173,9 @@
         return;
       }
       currentBoxes.forEach((b) => {
+        const item = document.createElement('div');
+        item.className = 'box-item';
+
         const row = document.createElement('div');
         row.className = 'box-row';
         const isFallback = b.labelSource === 'node-name-fallback';
@@ -165,7 +186,18 @@
           '<span class="name">' + escapeHtml(b.name) + '</span>' +
           '<span class="badge">' + escapeHtml(b.nodeType) + '</span>' +
           '<span class="badge' + (isFallback ? ' fallback' : '') + '">' + escapeHtml(b.labelSource) + '</span>';
-        boxesEl.appendChild(row);
+        item.appendChild(row);
+
+        if (b.technology || b.description) {
+          const detail = document.createElement('div');
+          detail.className = 'box-detail';
+          detail.innerHTML =
+            (b.technology ? '<span class="tech">' + escapeHtml(b.technology) + '</span>' : '') +
+            (b.description ? '<span class="desc">' + escapeHtml(b.description) + '</span>' : '');
+          item.appendChild(detail);
+        }
+
+        boxesEl.appendChild(item);
       });
     }
 
@@ -234,6 +266,10 @@
       return id;
     }
 
+    function esc(str) {
+      return String(str || '').replace(/"/g, '\\"');
+    }
+
     function toMermaidC4(boxes, relations) {
       const used = new Set();
       const idMap = new Map();
@@ -242,15 +278,20 @@
       const lines = ['C4Container', ''];
       boxes.forEach((b) => {
         const id = idMap.get(b.id);
-        const label = b.name.replace(/"/g, '\\"');
-        lines.push('Container(' + id + ', "' + label + '")');
+        const args = ['"' + esc(b.name) + '"'];
+        if (b.description) {
+          args.push('"' + esc(b.technology) + '"', '"' + esc(b.description) + '"');
+        } else if (b.technology) {
+          args.push('"' + esc(b.technology) + '"');
+        }
+        lines.push('Container(' + id + ', ' + args.join(', ') + ')');
       });
       lines.push('');
       relations.forEach((r) => {
         const s = idMap.get(r.source);
         const t = idMap.get(r.target);
         if (!s || !t) return;
-        const label = (r.label || '').replace(/"/g, '\\"');
+        const label = esc(r.label);
         lines.push('Rel(' + s + ', ' + t + ', "' + label + '")');
       });
       return lines.join('\n');
