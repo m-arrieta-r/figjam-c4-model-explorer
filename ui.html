@@ -195,6 +195,32 @@
   }
   .status { color: #888; margin-top: 8px; }
   .hidden { display: none; }
+
+  .search-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .search-bar input {
+    flex: 1;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    font-size: 11px;
+    border-radius: 6px;
+    border: 1px solid #d0d0d0;
+  }
+  .search-bar input:focus { outline: none; border-color: #18a0fb; }
+  .search-clear {
+    display: none;
+    border: none;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 6px;
+  }
+  .search-clear:hover { color: #b23c3c; }
 </style>
 </head>
 <body>
@@ -207,6 +233,11 @@
     <button class="tab-btn active" data-tab="relations">Relaciones</button>
     <button class="tab-btn" data-tab="boxes">Boxes</button>
     <button class="tab-btn" data-tab="export">Export</button>
+  </div>
+
+  <div class="search-bar" id="search-bar">
+    <input type="text" id="search-input" placeholder="Buscar por nombre, descripción o tecnología..." />
+    <button class="search-clear" id="search-clear" title="Limpiar búsqueda">&times;</button>
   </div>
 
   <div id="relations-view" class="tab-view">
@@ -232,6 +263,7 @@
     let currentBoxes = [];
     let currentRelations = [];
     let selectedRelationId = null;
+    let searchQuery = '';
 
     const relationsEl = document.getElementById('relations');
     const boxesEl = document.getElementById('boxes');
@@ -241,6 +273,9 @@
     const mermaidOutput = document.getElementById('mermaid-output');
     const copyBtn = document.getElementById('copy');
     const copyStatus = document.getElementById('copy-status');
+    const searchBarEl = document.getElementById('search-bar');
+    const searchInputEl = document.getElementById('search-input');
+    const searchClearEl = document.getElementById('search-clear');
 
     const tabButtons = document.querySelectorAll('.tab-btn');
     const tabViews = {
@@ -252,6 +287,7 @@
     function showTab(name) {
       tabButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === name));
       Object.entries(tabViews).forEach(([key, el]) => el.classList.toggle('hidden', key !== name));
+      searchBarEl.classList.toggle('hidden', name === 'export');
       if (name === 'export') {
         mermaidOutput.value = toMermaidC4(currentBoxes, currentRelations);
         copyStatus.textContent = '';
@@ -261,6 +297,57 @@
     tabButtons.forEach((btn) => {
       btn.onclick = () => showTab(btn.dataset.tab);
     });
+
+    var DIACRITIC_RE = new RegExp('[̀-ͯ]', 'g');
+    function normalizeSearch(str) {
+      return String(str || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(DIACRITIC_RE, '');
+    }
+
+    function matchesSearch(fields) {
+      const query = normalizeSearch(searchQuery).trim();
+      if (!query) return true;
+      const haystack = normalizeSearch(fields.filter(Boolean).join(' '));
+      return query.split(/\s+/).every((term) => haystack.includes(term));
+    }
+
+    function boxMatchesSearch(b) {
+      return matchesSearch([b.name, b.description, b.technology, b.elementType]);
+    }
+
+    function relationMatchesSearch(r) {
+      const sourceBox = findBox(r.source);
+      const targetBox = findBox(r.target);
+      return matchesSearch([
+        r.sourceName,
+        r.targetName,
+        r.label,
+        sourceBox && sourceBox.description,
+        sourceBox && sourceBox.technology,
+        sourceBox && sourceBox.elementType,
+        targetBox && targetBox.description,
+        targetBox && targetBox.technology,
+        targetBox && targetBox.elementType,
+      ]);
+    }
+
+    searchInputEl.addEventListener('input', () => {
+      searchQuery = searchInputEl.value;
+      searchClearEl.style.display = searchQuery ? 'inline-flex' : 'none';
+      renderBoxes();
+      renderRelations();
+    });
+
+    searchClearEl.onclick = () => {
+      searchInputEl.value = '';
+      searchQuery = '';
+      searchClearEl.style.display = 'none';
+      renderBoxes();
+      renderRelations();
+      searchInputEl.focus();
+    };
 
     document.getElementById('refresh').onclick = () => {
       parent.postMessage({ pluginMessage: { type: 'extract' } }, '*');
@@ -278,13 +365,19 @@
     };
 
     function renderBoxes() {
-      boxCountEl.textContent = currentBoxes.length;
+      const filtered = currentBoxes.filter(boxMatchesSearch);
+      boxCountEl.textContent =
+        filtered.length === currentBoxes.length ? currentBoxes.length : filtered.length + ' / ' + currentBoxes.length;
       boxesEl.innerHTML = '';
       if (currentBoxes.length === 0) {
         boxesEl.innerHTML = '<div class="empty">No boxes resolved yet.</div>';
         return;
       }
-      currentBoxes.forEach((b) => {
+      if (filtered.length === 0) {
+        boxesEl.innerHTML = '<div class="empty">Ningún box coincide con la búsqueda.</div>';
+        return;
+      }
+      filtered.forEach((b) => {
         const item = document.createElement('div');
         item.className = 'box-item';
 
@@ -369,14 +462,23 @@
     });
 
     function renderRelations() {
-      relationCountEl.textContent = currentRelations.length;
+      const filtered = currentRelations.filter(relationMatchesSearch);
+      relationCountEl.textContent =
+        filtered.length === currentRelations.length
+          ? currentRelations.length
+          : filtered.length + ' / ' + currentRelations.length;
       relationsEl.innerHTML = '';
       if (currentRelations.length === 0) {
         relationsEl.innerHTML = '<div class="empty">No connectors found between shapes on this page.</div>';
         hideRelationDetail();
         return;
       }
-      currentRelations.forEach((r) => {
+      if (filtered.length === 0) {
+        relationsEl.innerHTML = '<div class="empty">Ninguna relación coincide con la búsqueda.</div>';
+        hideRelationDetail();
+        return;
+      }
+      filtered.forEach((r) => {
         const row = document.createElement('div');
         row.className = 'relation' + (r.id === selectedRelationId ? ' selected' : '');
         row.setAttribute('data-relation-id', r.id);
@@ -392,7 +494,7 @@
         relationsEl.appendChild(row);
       });
 
-      if (selectedRelationId && currentRelations.some((r) => r.id === selectedRelationId)) {
+      if (selectedRelationId && filtered.some((r) => r.id === selectedRelationId)) {
         renderRelationDetail(selectedRelationId);
       } else {
         hideRelationDetail();
