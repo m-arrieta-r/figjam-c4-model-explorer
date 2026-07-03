@@ -221,6 +221,12 @@
     padding: 0 6px;
   }
   .search-clear:hover { color: #b23c3c; }
+
+  .format-btn.active {
+    background: #18a0fb;
+    color: white;
+    border-color: #18a0fb;
+  }
 </style>
 </head>
 <body>
@@ -253,6 +259,8 @@
 
   <div id="export-view" class="tab-view hidden">
     <div class="toolbar">
+      <button class="format-btn active" id="format-mermaid" data-format="mermaid">Mermaid C4</button>
+      <button class="format-btn" id="format-likec4" data-format="likec4">LikeC4 DSL</button>
       <button id="copy" class="primary">Copy to clipboard</button>
     </div>
     <textarea id="mermaid-output" readonly></textarea>
@@ -264,6 +272,7 @@
     let currentRelations = [];
     let selectedRelationId = null;
     let searchQuery = '';
+    let exportFormat = 'mermaid';
 
     const relationsEl = document.getElementById('relations');
     const boxesEl = document.getElementById('boxes');
@@ -276,6 +285,7 @@
     const searchBarEl = document.getElementById('search-bar');
     const searchInputEl = document.getElementById('search-input');
     const searchClearEl = document.getElementById('search-clear');
+    const formatButtons = document.querySelectorAll('.format-btn');
 
     const tabButtons = document.querySelectorAll('.tab-btn');
     const tabViews = {
@@ -284,18 +294,31 @@
       export: document.getElementById('export-view'),
     };
 
+    function renderExportOutput() {
+      mermaidOutput.value =
+        exportFormat === 'likec4' ? toLikeC4Dsl(currentBoxes, currentRelations) : toMermaidC4(currentBoxes, currentRelations);
+      copyStatus.textContent = '';
+    }
+
     function showTab(name) {
       tabButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === name));
       Object.entries(tabViews).forEach(([key, el]) => el.classList.toggle('hidden', key !== name));
       searchBarEl.classList.toggle('hidden', name === 'export');
       if (name === 'export') {
-        mermaidOutput.value = toMermaidC4(currentBoxes, currentRelations);
-        copyStatus.textContent = '';
+        renderExportOutput();
       }
     }
 
     tabButtons.forEach((btn) => {
       btn.onclick = () => showTab(btn.dataset.tab);
+    });
+
+    formatButtons.forEach((btn) => {
+      btn.onclick = () => {
+        exportFormat = btn.dataset.format;
+        formatButtons.forEach((b) => b.classList.toggle('active', b === btn));
+        renderExportOutput();
+      };
     });
 
     var DIACRITIC_RE = new RegExp('[̀-ͯ]', 'g');
@@ -629,10 +652,15 @@
       return String(str || '').replace(/"/g, '\\"');
     }
 
-    function toMermaidC4(boxes, relations) {
+    function buildIdMap(boxes) {
       const used = new Set();
       const idMap = new Map();
       boxes.forEach((b) => idMap.set(b.id, slugify(b.name, used)));
+      return idMap;
+    }
+
+    function toMermaidC4(boxes, relations) {
+      const idMap = buildIdMap(boxes);
 
       const lines = ['C4Container', ''];
       boxes.forEach((b) => {
@@ -656,6 +684,70 @@
       return lines.join('\n');
     }
 
+    const LIKEC4_KNOWN_KINDS = {
+      'person': 'person',
+      'software system': 'softwareSystem',
+      'external system': 'externalSystem',
+      'container': 'container',
+      'component': 'component',
+      'database': 'database',
+    };
+
+    // Turns an arbitrary element-type string (e.g. "Message Queue") into a
+    // valid LikeC4 kind identifier ("messageQueue").
+    function toCamelIdentifier(raw, fallback) {
+      const words = raw
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      if (words.length === 0) return fallback;
+      return words[0] + words.slice(1).map((w) => w[0].toUpperCase() + w.slice(1)).join('');
+    }
+
+    function likeC4KindFor(box) {
+      const raw = (box.elementType || '').trim().toLowerCase();
+      if (!raw) return 'component';
+      return LIKEC4_KNOWN_KINDS[raw] || toCamelIdentifier(raw, 'component');
+    }
+
+    function toLikeC4Dsl(boxes, relations) {
+      const idMap = buildIdMap(boxes);
+      const kindFor = new Map(boxes.map((b) => [b.id, likeC4KindFor(b)]));
+      const kindsUsed = Array.from(new Set(kindFor.values())).sort();
+
+      const lines = ['specification {'];
+      kindsUsed.forEach((k) => lines.push('  element ' + k));
+      lines.push('}', '', 'model {');
+
+      boxes.forEach((b) => {
+        const id = idMap.get(b.id);
+        const kind = kindFor.get(b.id);
+        const hasBody = Boolean(b.technology || b.description);
+        if (!hasBody) {
+          lines.push('  ' + kind + ' ' + id + ' "' + esc(b.name) + '"');
+          return;
+        }
+        lines.push('  ' + kind + ' ' + id + ' "' + esc(b.name) + '" {');
+        if (b.technology) lines.push('    technology "' + esc(b.technology) + '"');
+        if (b.description) lines.push('    description "' + esc(b.description) + '"');
+        lines.push('  }');
+      });
+
+      lines.push('');
+      relations.forEach((r) => {
+        const s = idMap.get(r.source);
+        const t = idMap.get(r.target);
+        if (!s || !t) return;
+        lines.push('  ' + s + ' -> ' + t + (r.label ? ' "' + esc(r.label) + '"' : ''));
+      });
+
+      lines.push('}', '', 'views {', '  view index {', '    include *', '  }', '}');
+
+      return lines.join('\n');
+    }
+
     window.onmessage = (event) => {
       const msg = event.data.pluginMessage;
       if (!msg) return;
@@ -665,7 +757,7 @@
         renderBoxes();
         renderRelations();
         if (!tabViews.export.classList.contains('hidden')) {
-          mermaidOutput.value = toMermaidC4(currentBoxes, currentRelations);
+          renderExportOutput();
         }
       }
     };
