@@ -43,6 +43,43 @@ function isMeaningfulText(text: string): boolean {
   return /[\p{L}\p{N}]/u.test(text);
 }
 
+interface NamedText {
+  nodeName: string;
+  text: string;
+}
+
+const TITLE_NAME_RE = /^(t[ií]tulo|title|nombre|name)$/i;
+const TECH_NAME_RE = /^(tecnolog[ií]a|technology|tech|subt[ií]tulo|subtitle)$/i;
+const DESC_NAME_RE = /^(descripci[oó]n|description|desc)$/i;
+
+// Flattens every descendant TEXT node's own layer name + content, regardless
+// of how deeply nested or how they're grouped by parent frame. Some C4 shape
+// templates label each text layer directly (e.g. "Título", "Tecnología",
+// "Descripción") as siblings in the same frame, with no separate subframe per
+// role - collectTextGroups alone can't tell those apart.
+function collectNamedTexts(node: BaseNode): NamedText[] {
+  const result: NamedText[] = [];
+
+  function walk(n: BaseNode) {
+    if (!("children" in n)) return;
+    (n as ChildrenMixin).children.forEach((c) => {
+      if (c.type === "TEXT") {
+        const text = c.characters.trim();
+        if (text.length > 0) result.push({ nodeName: c.name.trim(), text });
+      } else {
+        walk(c);
+      }
+    });
+  }
+
+  walk(node);
+  return result;
+}
+
+function stripBracket(text: string): string {
+  return text.replace(/^\[\s*/, "").replace(/\s*\]$/, "").trim();
+}
+
 // Collects each container's own direct TEXT children as one group, walked
 // depth-first. This keeps a bracket annotation like "[" + "Software System" +
 // "]" together (they share the same parent frame, e.g. "Subtitle"), separate
@@ -96,6 +133,21 @@ function extractBoxDetails(node: BaseNode | null): BoxDetails {
     isMeaningfulText(withChars.characters)
   ) {
     return { name: withChars.characters.trim(), nameSource: "characters", technology: null, description: null };
+  }
+
+  // Shapes that label each text layer directly (e.g. "Título", "Tecnología",
+  // "Descripción" as sibling TEXT nodes with no dedicated subframe per role).
+  const namedTexts = collectNamedTexts(node);
+  const namedTitle = namedTexts.find((t) => TITLE_NAME_RE.test(t.nodeName));
+  if (namedTitle) {
+    const namedTech = namedTexts.find((t) => TECH_NAME_RE.test(t.nodeName));
+    const namedDesc = namedTexts.find((t) => DESC_NAME_RE.test(t.nodeName));
+    return {
+      name: namedTitle.text,
+      nameSource: "named-text-node",
+      technology: namedTech ? stripBracket(namedTech.text) || null : null,
+      description: namedDesc ? namedDesc.text : null,
+    };
   }
 
   // Structured container (e.g. a C4 shape template): classify each text group.

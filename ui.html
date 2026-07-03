@@ -18,15 +18,42 @@
   button.primary { background: #18a0fb; color: white; border-color: #18a0fb; }
   button:hover { opacity: 0.9; }
   .empty { color: #888; padding: 8px 0; }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 12px;
+  }
+  .tab-btn {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    padding: 8px 10px;
+    color: #666;
+    border-bottom: 2px solid transparent;
+  }
+  .tab-btn.active {
+    color: #18a0fb;
+    border-bottom-color: #18a0fb;
+    font-weight: 600;
+  }
+  .tab-view.hidden { display: none; }
+
   .relation {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 0;
+    padding: 6px 4px;
     border-bottom: 1px solid #eee;
+    cursor: pointer;
+    border-radius: 4px;
   }
+  .relation:hover { background: #f7fbff; }
+  .relation.selected { background: #eef6ff; }
   .relation .name { font-weight: 600; }
   .relation .label { color: #888; font-style: italic; flex: 1; text-align: center; }
+
   .boxes { margin-bottom: 12px; }
   .box-item {
     padding: 4px 0;
@@ -38,8 +65,22 @@
     gap: 6px;
   }
   .box-detail {
-    margin: 2px 0 0 28px;
+    margin: 4px 0 0 28px;
     color: #666;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .box-detail .tech-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .box-detail .tech-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #999;
   }
   .box-detail .tech {
     display: inline-block;
@@ -48,10 +89,11 @@
     border-radius: 10px;
     background: #eef6ff;
     color: #1a6fb0;
-    margin-right: 6px;
   }
   .box-detail .desc {
     font-style: italic;
+    color: #555;
+    line-height: 1.4;
   }
   .badge {
     font-size: 10px;
@@ -79,6 +121,61 @@
   .icon-btn:hover { background: #eef6ff; border-color: #18a0fb; color: #18a0fb; }
   .icon-btn svg { width: 14px; height: 14px; }
   .box-row .name { flex: 1; }
+
+  .relation-detail {
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #d8e8fa;
+    background: #f7fbff;
+  }
+  .relation-detail.hidden { display: none; }
+  .relation-detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .relation-detail-header .label-text {
+    font-style: italic;
+    color: #555;
+  }
+  .relation-detail-close {
+    border: none;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0 4px;
+  }
+  .relation-detail-close:hover { color: #b23c3c; }
+  .endpoint-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 0;
+  }
+  .endpoint-card + .endpoint-card {
+    border-top: 1px dashed #d8e8fa;
+  }
+  .endpoint-role {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #1a6fb0;
+    font-weight: 700;
+    width: 42px;
+    flex-shrink: 0;
+    padding-top: 3px;
+  }
+  .endpoint-body { flex: 1; min-width: 0; }
+  .endpoint-name-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .endpoint-name-row .name { font-weight: 600; }
+
   textarea {
     width: 100%;
     height: 320px;
@@ -98,56 +195,69 @@
   <h2>C4 Relations</h2>
   <div class="toolbar">
     <button id="refresh">Refresh</button>
-    <button id="export" class="primary">Export Mermaid</button>
-    <button id="back" class="hidden">Back to list</button>
   </div>
 
-  <div id="list-view">
-    <h3>Boxes (<span id="box-count">0</span>)</h3>
-    <div class="boxes" id="boxes"></div>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="relations">Relaciones</button>
+    <button class="tab-btn" data-tab="boxes">Boxes</button>
+    <button class="tab-btn" data-tab="export">Export</button>
+  </div>
+
+  <div id="relations-view" class="tab-view">
     <h3>Relations (<span id="relation-count">0</span>)</h3>
     <div id="relations"></div>
+    <div id="relation-detail" class="relation-detail hidden"></div>
   </div>
 
-  <div id="export-view" class="hidden">
-    <textarea id="mermaid-output" readonly></textarea>
+  <div id="boxes-view" class="tab-view hidden">
+    <h3>Boxes (<span id="box-count">0</span>)</h3>
+    <div class="boxes" id="boxes"></div>
+  </div>
+
+  <div id="export-view" class="tab-view hidden">
     <div class="toolbar">
       <button id="copy" class="primary">Copy to clipboard</button>
     </div>
+    <textarea id="mermaid-output" readonly></textarea>
     <div id="copy-status" class="status"></div>
   </div>
 
   <script>
     let currentBoxes = [];
     let currentRelations = [];
+    let selectedRelationId = null;
 
     const relationsEl = document.getElementById('relations');
-    const listView = document.getElementById('list-view');
-    const exportView = document.getElementById('export-view');
-    const backBtn = document.getElementById('back');
-    const exportBtn = document.getElementById('export');
+    const boxesEl = document.getElementById('boxes');
+    const boxCountEl = document.getElementById('box-count');
+    const relationCountEl = document.getElementById('relation-count');
+    const relationDetailEl = document.getElementById('relation-detail');
     const mermaidOutput = document.getElementById('mermaid-output');
     const copyBtn = document.getElementById('copy');
     const copyStatus = document.getElementById('copy-status');
 
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    const tabViews = {
+      relations: document.getElementById('relations-view'),
+      boxes: document.getElementById('boxes-view'),
+      export: document.getElementById('export-view'),
+    };
+
+    function showTab(name) {
+      tabButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === name));
+      Object.entries(tabViews).forEach(([key, el]) => el.classList.toggle('hidden', key !== name));
+      if (name === 'export') {
+        mermaidOutput.value = toMermaidC4(currentBoxes, currentRelations);
+        copyStatus.textContent = '';
+      }
+    }
+
+    tabButtons.forEach((btn) => {
+      btn.onclick = () => showTab(btn.dataset.tab);
+    });
+
     document.getElementById('refresh').onclick = () => {
       parent.postMessage({ pluginMessage: { type: 'extract' } }, '*');
-    };
-
-    exportBtn.onclick = () => {
-      mermaidOutput.value = toMermaidC4(currentBoxes, currentRelations);
-      listView.classList.add('hidden');
-      exportView.classList.remove('hidden');
-      backBtn.classList.remove('hidden');
-      exportBtn.classList.add('hidden');
-      copyStatus.textContent = '';
-    };
-
-    backBtn.onclick = () => {
-      exportView.classList.add('hidden');
-      listView.classList.remove('hidden');
-      backBtn.classList.add('hidden');
-      exportBtn.classList.remove('hidden');
     };
 
     copyBtn.onclick = async () => {
@@ -160,10 +270,6 @@
         copyStatus.textContent = 'Copied to clipboard.';
       }
     };
-
-    const boxesEl = document.getElementById('boxes');
-    const boxCountEl = document.getElementById('box-count');
-    const relationCountEl = document.getElementById('relation-count');
 
     function renderBoxes() {
       boxCountEl.textContent = currentBoxes.length;
@@ -189,16 +295,22 @@
         item.appendChild(row);
 
         if (b.technology || b.description) {
-          const detail = document.createElement('div');
-          detail.className = 'box-detail';
-          detail.innerHTML =
-            (b.technology ? '<span class="tech">' + escapeHtml(b.technology) + '</span>' : '') +
-            (b.description ? '<span class="desc">' + escapeHtml(b.description) + '</span>' : '');
-          item.appendChild(detail);
+          item.appendChild(renderBoxDetail(b.technology, b.description));
         }
 
         boxesEl.appendChild(item);
       });
+    }
+
+    function renderBoxDetail(technology, description) {
+      const detail = document.createElement('div');
+      detail.className = 'box-detail';
+      detail.innerHTML =
+        (technology
+          ? '<div class="tech-row"><span class="tech-label">Tech</span><span class="tech">' + escapeHtml(technology) + '</span></div>'
+          : '') +
+        (description ? '<div class="desc">' + escapeHtml(description) + '</div>' : '');
+      return detail;
     }
 
     const LOCATE_ICON_SVG =
@@ -222,11 +334,13 @@
       relationsEl.innerHTML = '';
       if (currentRelations.length === 0) {
         relationsEl.innerHTML = '<div class="empty">No connectors found between shapes on this page.</div>';
+        hideRelationDetail();
         return;
       }
       currentRelations.forEach((r) => {
         const row = document.createElement('div');
-        row.className = 'relation';
+        row.className = 'relation' + (r.id === selectedRelationId ? ' selected' : '');
+        row.setAttribute('data-relation-id', r.id);
         row.innerHTML =
           '<button class="icon-btn" data-id="' + escapeHtml(r.id) + '" title="Ir al conector en el lienzo">' +
             LOCATE_ICON_SVG +
@@ -236,9 +350,110 @@
           '<span class="name">' + escapeHtml(r.targetName) + '</span>';
         relationsEl.appendChild(row);
       });
+
+      if (selectedRelationId && currentRelations.some((r) => r.id === selectedRelationId)) {
+        renderRelationDetail(selectedRelationId);
+      } else {
+        hideRelationDetail();
+      }
+    }
+
+    function findBox(id) {
+      return currentBoxes.find((b) => b.id === id) || null;
+    }
+
+    function renderEndpointCard(role, nodeId, fallbackName) {
+      const box = findBox(nodeId);
+      const name = box ? box.name : fallbackName;
+      const isFallback = box && box.labelSource === 'node-name-fallback';
+      const card = document.createElement('div');
+      card.className = 'endpoint-card';
+
+      const nameRow = document.createElement('div');
+      nameRow.className = 'endpoint-name-row';
+      nameRow.innerHTML =
+        '<button class="icon-btn" data-id="' + escapeHtml(nodeId) + '" title="Ir al elemento en el lienzo">' +
+          LOCATE_ICON_SVG +
+        '</button>' +
+        '<span class="name">' + escapeHtml(name) + '</span>' +
+        (box ? '<span class="badge">' + escapeHtml(box.nodeType) + '</span>' : '') +
+        (box ? '<span class="badge' + (isFallback ? ' fallback' : '') + '">' + escapeHtml(box.labelSource) + '</span>' : '');
+
+      const roleEl = document.createElement('div');
+      roleEl.className = 'endpoint-role';
+      roleEl.textContent = role;
+
+      const body = document.createElement('div');
+      body.className = 'endpoint-body';
+      body.appendChild(nameRow);
+      if (box && (box.technology || box.description)) {
+        body.appendChild(renderBoxDetail(box.technology, box.description));
+      }
+
+      card.appendChild(roleEl);
+      card.appendChild(body);
+      return card;
+    }
+
+    function renderRelationDetail(relationId) {
+      const relation = currentRelations.find((r) => r.id === relationId);
+      if (!relation) {
+        hideRelationDetail();
+        return;
+      }
+      relationDetailEl.innerHTML = '';
+
+      const header = document.createElement('div');
+      header.className = 'relation-detail-header';
+      header.innerHTML =
+        '<span class="label-text">' + (relation.label ? escapeHtml(relation.label) : '(sin etiqueta)') + '</span>' +
+        '<button class="relation-detail-close" title="Cerrar">&times;</button>';
+      relationDetailEl.appendChild(header);
+      header.querySelector('.relation-detail-close').onclick = () => {
+        selectedRelationId = null;
+        hideRelationDetail();
+        relationsEl.querySelectorAll('.relation.selected').forEach((el) => el.classList.remove('selected'));
+      };
+
+      relationDetailEl.appendChild(renderEndpointCard('Start', relation.source, relation.sourceName));
+      relationDetailEl.appendChild(renderEndpointCard('End', relation.target, relation.targetName));
+
+      const row = relationsEl.querySelector('.relation[data-relation-id="' + relationId + '"]');
+      if (row) {
+        row.insertAdjacentElement('afterend', relationDetailEl);
+      }
+
+      relationDetailEl.classList.remove('hidden');
+    }
+
+    function hideRelationDetail() {
+      relationDetailEl.classList.add('hidden');
+      relationDetailEl.innerHTML = '';
     }
 
     relationsEl.addEventListener('click', (event) => {
+      const focusBtn = event.target.closest('.icon-btn');
+      if (focusBtn) {
+        const id = focusBtn.getAttribute('data-id');
+        if (id) {
+          parent.postMessage({ pluginMessage: { type: 'focus', id } }, '*');
+        }
+      }
+      const row = event.target.closest('.relation');
+      if (!row) return;
+      const relationId = row.getAttribute('data-relation-id');
+      selectedRelationId = focusBtn ? relationId : (selectedRelationId === relationId ? null : relationId);
+      relationsEl.querySelectorAll('.relation').forEach((el) => {
+        el.classList.toggle('selected', el.getAttribute('data-relation-id') === selectedRelationId);
+      });
+      if (selectedRelationId) {
+        renderRelationDetail(selectedRelationId);
+      } else {
+        hideRelationDetail();
+      }
+    });
+
+    relationDetailEl.addEventListener('click', (event) => {
       const btn = event.target.closest('.icon-btn');
       if (!btn) return;
       const id = btn.getAttribute('data-id');
@@ -305,6 +520,9 @@
         currentRelations = msg.relations || [];
         renderBoxes();
         renderRelations();
+        if (!tabViews.export.classList.contains('hidden')) {
+          mermaidOutput.value = toMermaidC4(currentBoxes, currentRelations);
+        }
       }
     };
   </script>
