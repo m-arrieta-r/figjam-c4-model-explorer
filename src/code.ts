@@ -5,6 +5,7 @@ interface Box {
   name: string;
   nodeType: string;
   labelSource: string;
+  elementType: string | null;
   technology: string | null;
   description: string | null;
 }
@@ -27,6 +28,7 @@ interface ExtractResult {
 interface BoxDetails {
   name: string;
   nameSource: string;
+  elementType: string | null;
   technology: string | null;
   description: string | null;
 }
@@ -80,6 +82,19 @@ function stripBracket(text: string): string {
   return text.replace(/^\[\s*/, "").replace(/\s*\]$/, "").trim();
 }
 
+// Splits a C4 annotation like "Container: Oracle APEX" into its element type
+// ("Container") and concrete technology ("Oracle APEX"). Annotations with no
+// colon (e.g. "Person", "Software System") are the element type alone.
+function splitTechAnnotation(raw: string | null): { elementType: string | null; technology: string | null } {
+  if (!raw) return { elementType: null, technology: null };
+  const idx = raw.indexOf(":");
+  if (idx === -1) return { elementType: raw.trim() || null, technology: null };
+  return {
+    elementType: raw.slice(0, idx).trim() || null,
+    technology: raw.slice(idx + 1).trim() || null,
+  };
+}
+
 // Collects each container's own direct TEXT children as one group, walked
 // depth-first. This keeps a bracket annotation like "[" + "Software System" +
 // "]" together (they share the same parent frame, e.g. "Subtitle"), separate
@@ -108,7 +123,7 @@ function collectTextGroups(node: BaseNode): TextGroup[] {
 // System]" or "[Container: Java, Spring]") and description of a C4 box.
 function extractBoxDetails(node: BaseNode | null): BoxDetails {
   if (!node) {
-    return { name: "Unknown", nameSource: "missing-node", technology: null, description: null };
+    return { name: "Unknown", nameSource: "missing-node", elementType: null, technology: null, description: null };
   }
 
   // Simple text-bearing nodes (shape-with-text, sticky, plain text) - use directly.
@@ -122,6 +137,7 @@ function extractBoxDetails(node: BaseNode | null): BoxDetails {
     return {
       name: withText.text.characters.trim(),
       nameSource: "text-sublayer",
+      elementType: null,
       technology: null,
       description: null,
     };
@@ -132,7 +148,13 @@ function extractBoxDetails(node: BaseNode | null): BoxDetails {
     withChars.characters.trim() &&
     isMeaningfulText(withChars.characters)
   ) {
-    return { name: withChars.characters.trim(), nameSource: "characters", technology: null, description: null };
+    return {
+      name: withChars.characters.trim(),
+      nameSource: "characters",
+      elementType: null,
+      technology: null,
+      description: null,
+    };
   }
 
   // Shapes that label each text layer directly (e.g. "Título", "Tecnología",
@@ -142,10 +164,12 @@ function extractBoxDetails(node: BaseNode | null): BoxDetails {
   if (namedTitle) {
     const namedTech = namedTexts.find((t) => TECH_NAME_RE.test(t.nodeName));
     const namedDesc = namedTexts.find((t) => DESC_NAME_RE.test(t.nodeName));
+    const { elementType, technology } = splitTechAnnotation(namedTech ? stripBracket(namedTech.text) : null);
     return {
       name: namedTitle.text,
       nameSource: "named-text-node",
-      technology: namedTech ? stripBracket(namedTech.text) || null : null,
+      elementType,
+      technology,
       description: namedDesc ? namedDesc.text : null,
     };
   }
@@ -153,22 +177,24 @@ function extractBoxDetails(node: BaseNode | null): BoxDetails {
   // Structured container (e.g. a C4 shape template): classify each text group.
   const groups = collectTextGroups(node);
 
-  let technology: string | null = null;
+  let bracketContent: string | null = null;
   let description: string | null = null;
 
   for (const group of groups) {
     const joinedRaw = group.texts.join("");
-    if (technology === null && /^\[.*\]$/.test(joinedRaw)) {
+    if (bracketContent === null && /^\[.*\]$/.test(joinedRaw)) {
       const inner = group.texts
         .filter((t) => t !== "[" && t !== "]")
         .join(" ")
         .trim();
-      technology = inner || null;
+      bracketContent = inner || null;
     } else if (description === null && /description/i.test(group.parentName)) {
       const joined = group.texts.join(" ").trim();
       if (joined) description = joined;
     }
   }
+
+  const { elementType, technology } = splitTechAnnotation(bracketContent);
 
   let name: string | null = null;
   for (const group of groups) {
@@ -183,10 +209,10 @@ function extractBoxDetails(node: BaseNode | null): BoxDetails {
   }
 
   if (name) {
-    return { name, nameSource: "descendant-text", technology, description };
+    return { name, nameSource: "descendant-text", elementType, technology, description };
   }
 
-  return { name: node.name, nameSource: "node-name-fallback", technology, description };
+  return { name: node.name, nameSource: "node-name-fallback", elementType, technology, description };
 }
 
 function extractRelations(): ExtractResult {
@@ -226,6 +252,7 @@ function extractRelations(): ExtractResult {
         name: sourceDetails.name,
         nodeType: sourceNode?.type ?? "unknown",
         labelSource: sourceDetails.nameSource,
+        elementType: sourceDetails.elementType,
         technology: sourceDetails.technology,
         description: sourceDetails.description,
       });
@@ -236,6 +263,7 @@ function extractRelations(): ExtractResult {
         name: targetDetails.name,
         nodeType: targetNode?.type ?? "unknown",
         labelSource: targetDetails.nameSource,
+        elementType: targetDetails.elementType,
         technology: targetDetails.technology,
         description: targetDetails.description,
       });

@@ -103,6 +103,12 @@
     color: #666;
   }
   .badge.fallback { background: #fde3e3; color: #b23c3c; }
+  .type-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 10px;
+  }
   h3 { font-size: 12px; margin: 12px 0 4px; color: #666; }
   .icon-btn {
     display: inline-flex;
@@ -290,6 +296,7 @@
             LOCATE_ICON_SVG +
           '</button>' +
           '<span class="name">' + escapeHtml(b.name) + '</span>' +
+          typeBadgeHtml(b.elementType) +
           '<span class="badge">' + escapeHtml(b.nodeType) + '</span>' +
           '<span class="badge' + (isFallback ? ' fallback' : '') + '">' + escapeHtml(b.labelSource) + '</span>';
         item.appendChild(row);
@@ -300,6 +307,38 @@
 
         boxesEl.appendChild(item);
       });
+    }
+
+    const KNOWN_TYPE_COLORS = {
+      'person': { bg: '#f3e8ff', fg: '#7c3aed' },
+      'software system': { bg: '#e6f7ee', fg: '#1f9254' },
+      'external system': { bg: '#f2eee0', fg: '#8a6d1f' },
+      'container': { bg: '#e8f0fe', fg: '#1a56b0' },
+      'component': { bg: '#ffe8ef', fg: '#c23163' },
+      'database': { bg: '#e3f6f6', fg: '#0d7a7a' },
+    };
+    const FALLBACK_TYPE_COLORS = [
+      { bg: '#fff4e0', fg: '#b56a00' },
+      { bg: '#e8f0fe', fg: '#1a56b0' },
+      { bg: '#f3e8ff', fg: '#7c3aed' },
+      { bg: '#e6f7ee', fg: '#1f9254' },
+      { bg: '#ffe8ef', fg: '#c23163' },
+      { bg: '#e3f6f6', fg: '#0d7a7a' },
+    ];
+
+    function hashStr(str) {
+      let h = 0;
+      for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+      return Math.abs(h);
+    }
+
+    function typeBadgeHtml(elementType) {
+      if (!elementType) return '';
+      const key = elementType.trim().toLowerCase();
+      const color = KNOWN_TYPE_COLORS[key] || FALLBACK_TYPE_COLORS[hashStr(key) % FALLBACK_TYPE_COLORS.length];
+      return '<span class="type-badge" style="background: ' + color.bg + '; color: ' + color.fg + ';">' +
+        escapeHtml(elementType) +
+        '</span>';
     }
 
     function renderBoxDetail(technology, description) {
@@ -346,8 +385,10 @@
             LOCATE_ICON_SVG +
           '</button>' +
           '<span class="name">' + escapeHtml(r.sourceName) + '</span>' +
+          typeBadgeHtml(findBox(r.source) && findBox(r.source).elementType) +
           '<span class="label">&rarr; ' + (r.label ? escapeHtml(r.label) : '') + ' &rarr;</span>' +
-          '<span class="name">' + escapeHtml(r.targetName) + '</span>';
+          '<span class="name">' + escapeHtml(r.targetName) + '</span>' +
+          typeBadgeHtml(findBox(r.target) && findBox(r.target).elementType);
         relationsEl.appendChild(row);
       });
 
@@ -376,6 +417,7 @@
           LOCATE_ICON_SVG +
         '</button>' +
         '<span class="name">' + escapeHtml(name) + '</span>' +
+        (box ? typeBadgeHtml(box.elementType) : '') +
         (box ? '<span class="badge">' + escapeHtml(box.nodeType) + '</span>' : '') +
         (box ? '<span class="badge' + (isFallback ? ' fallback' : '') + '">' + escapeHtml(box.labelSource) + '</span>' : '');
 
