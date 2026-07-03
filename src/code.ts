@@ -33,12 +33,6 @@ interface BoxDetails {
   description: string | null;
 }
 
-interface TextGroup {
-  parentId: string;
-  parentName: string;
-  texts: string[];
-}
-
 // Punctuation-only runs (e.g. "[", "]") are decorative fragments some C4 shape
 // libraries use to wrap a "[Technology]" annotation across separate text nodes.
 function isMeaningfulText(text: string): boolean {
@@ -95,28 +89,57 @@ function splitTechAnnotation(raw: string | null): { elementType: string | null; 
   };
 }
 
-// Collects each container's own direct TEXT children as one group, walked
-// depth-first. This keeps a bracket annotation like "[" + "Software System" +
-// "]" together (they share the same parent frame, e.g. "Subtitle"), separate
-// from the title text and from a "Description" frame's paragraph.
-function collectTextGroups(node: BaseNode): TextGroup[] {
-  const groups: TextGroup[] = [];
-
-  function walk(n: BaseNode) {
-    if (!("children" in n)) return;
-    const children = (n as ChildrenMixin).children;
-    const textChildren = children.filter((c): c is TextNode => c.type === "TEXT");
-    const texts = textChildren.map((t) => t.characters.trim()).filter((t) => t.length > 0);
-    if (texts.length > 0) {
-      groups.push({ parentId: n.id, parentName: n.name, texts });
+// Finds the bracket annotation within an ordered list of text runs, e.g.
+// "[Software System]" as a single run, or "[" + "Software System" + "]" split
+// across separate sibling text nodes. Returns the [start, end] run indices.
+function findBracketRun(texts: string[]): [number, number] | null {
+  for (let i = 0; i < texts.length; i++) {
+    if (!texts[i].startsWith("[")) continue;
+    for (let j = i; j < texts.length; j++) {
+      if (texts[j].endsWith("]")) return [i, j];
     }
-    children.forEach((c) => {
-      if (c.type !== "TEXT") walk(c);
-    });
+  }
+  return null;
+}
+
+interface FlatDetails {
+  name: string | null;
+  elementType: string | null;
+  technology: string | null;
+  description: string | null;
+}
+
+// Positional fallback for shapes whose text layers aren't semantically named
+// (e.g. a designer left the default layer name, which Figma sets to the
+// text's own content). Works purely off document order: the bracket
+// annotation is found and removed wherever it sits, the first remaining
+// meaningful text becomes the name, and everything after it becomes the
+// description - regardless of how the texts are nested/grouped in frames.
+function extractFlatDetails(node: BaseNode): FlatDetails {
+  const texts = collectNamedTexts(node).map((t) => t.text);
+  if (texts.length === 0) {
+    return { name: null, elementType: null, technology: null, description: null };
   }
 
-  walk(node);
-  return groups;
+  const bracketRun = findBracketRun(texts);
+  let elementType: string | null = null;
+  let technology: string | null = null;
+  let remaining = texts;
+
+  if (bracketRun) {
+    const [start, end] = bracketRun;
+    const bracketText = texts.slice(start, end + 1).join(" ");
+    const split = splitTechAnnotation(stripBracket(bracketText));
+    elementType = split.elementType;
+    technology = split.technology;
+    remaining = texts.filter((_, idx) => idx < start || idx > end);
+  }
+
+  const meaningful = remaining.filter((t) => isMeaningfulText(t));
+  const name = meaningful.length > 0 ? meaningful[0] : null;
+  const description = meaningful.length > 1 ? meaningful.slice(1).join(" ").trim() : null;
+
+  return { name, elementType, technology, description };
 }
 
 // Extracts the title, technology (bracketed annotation, e.g. "[Software
@@ -174,45 +197,27 @@ function extractBoxDetails(node: BaseNode | null): BoxDetails {
     };
   }
 
-  // Structured container (e.g. a C4 shape template): classify each text group.
-  const groups = collectTextGroups(node);
-
-  let bracketContent: string | null = null;
-  let description: string | null = null;
-
-  for (const group of groups) {
-    const joinedRaw = group.texts.join("");
-    if (bracketContent === null && /^\[.*\]$/.test(joinedRaw)) {
-      const inner = group.texts
-        .filter((t) => t !== "[" && t !== "]")
-        .join(" ")
-        .trim();
-      bracketContent = inner || null;
-    } else if (description === null && /description/i.test(group.parentName)) {
-      const joined = group.texts.join(" ").trim();
-      if (joined) description = joined;
-    }
+  // Fallback for shapes whose text layers aren't semantically named: work off
+  // document order instead (bracket annotation anywhere, then name, then
+  // description - see extractFlatDetails).
+  const flat = extractFlatDetails(node);
+  if (flat.name) {
+    return {
+      name: flat.name,
+      nameSource: "descendant-text",
+      elementType: flat.elementType,
+      technology: flat.technology,
+      description: flat.description,
+    };
   }
 
-  const { elementType, technology } = splitTechAnnotation(bracketContent);
-
-  let name: string | null = null;
-  for (const group of groups) {
-    const joinedRaw = group.texts.join("");
-    if (/^\[.*\]$/.test(joinedRaw)) continue;
-    if (/description/i.test(group.parentName)) continue;
-    const joined = group.texts.join(" ").trim();
-    if (joined && isMeaningfulText(joined)) {
-      name = joined;
-      break;
-    }
-  }
-
-  if (name) {
-    return { name, nameSource: "descendant-text", elementType, technology, description };
-  }
-
-  return { name: node.name, nameSource: "node-name-fallback", elementType, technology, description };
+  return {
+    name: node.name,
+    nameSource: "node-name-fallback",
+    elementType: flat.elementType,
+    technology: flat.technology,
+    description: flat.description,
+  };
 }
 
 function extractRelations(): ExtractResult {
