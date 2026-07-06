@@ -1,971 +1,1424 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-<meta charset="utf-8" />
-<style>
-  :root {
-    font-family: Inter, system-ui, sans-serif;
-    --border: #e4e4e7;
-    --border-light: #ededf0;
-    --text: #18181b;
-    --text-muted: #6b7280;
-    --text-faint: #9ca3af;
-    --primary: #18a0fb;
-    --primary-bg: #eaf5ff;
-    --danger: #d1435b;
-    --danger-bg: #fde3e3;
-    --radius: 10px;
-    --radius-sm: 6px;
-    --shadow-hover: 0 2px 6px rgba(15, 23, 42, 0.08);
-  }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body { margin: 0; padding: 0; font-size: 12px; color: var(--text); background: #fff; }
+    <head>
+        <meta charset="utf-8" />
+        <style>
+            :root {
+                font-family: Inter, system-ui, sans-serif;
+                --border: #e4e4e7;
+                --border-light: #ededf0;
+                --text: #18181b;
+                --text-muted: #6b7280;
+                --text-faint: #9ca3af;
+                --primary: #18a0fb;
+                --primary-bg: #eaf5ff;
+                --danger: #d1435b;
+                --danger-bg: #fde3e3;
+                --radius: 10px;
+                --radius-sm: 6px;
+                --shadow-hover: 0 2px 6px rgba(15, 23, 42, 0.08);
+            }
+            * {
+                box-sizing: border-box;
+            }
+            html,
+            body {
+                height: 100%;
+            }
+            body {
+                margin: 0;
+                padding: 0;
+                font-size: 12px;
+                color: var(--text);
+                background: #fff;
+            }
 
-  .sticky-header {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    background: #fff;
-    padding: 14px 14px 0;
-    border-bottom: 1px solid var(--border-light);
-  }
-  .content { padding: 12px 14px 20px; }
+            .sticky-header {
+                position: sticky;
+                top: 0;
+                z-index: 10;
+                background: #fff;
+                padding: 14px 14px 0;
+                border-bottom: 1px solid var(--border-light);
+            }
+            .content {
+                padding: 12px 14px 20px;
+            }
 
-  .title-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
-  }
-  .title-left { display: flex; align-items: center; gap: 8px; }
-  .app-icon {
-    width: 26px;
-    height: 26px;
-    flex-shrink: 0;
-    border-radius: var(--radius-sm);
-  }
-  h2 { font-size: 14px; margin: 0; font-weight: 700; }
+            .title-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 10px;
+            }
+            .title-left {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .app-icon {
+                width: 26px;
+                height: 26px;
+                flex-shrink: 0;
+                border-radius: var(--radius-sm);
+            }
+            h2 {
+                font-size: 14px;
+                margin: 0;
+                font-weight: 700;
+            }
 
-  button {
-    font-size: 11px;
-    padding: 6px 10px;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
-    background: #f7f7f8;
-    color: var(--text);
-    cursor: pointer;
-  }
-  button.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
-  button:hover { background: #eee; }
-  button.primary:hover { background: #0d8fe0; }
-  .toolbar { display: flex; gap: 8px; align-items: center; }
+            button {
+                font-size: 11px;
+                padding: 6px 10px;
+                border-radius: var(--radius-sm);
+                border: 1px solid var(--border);
+                background: #f7f7f8;
+                color: var(--text);
+                cursor: pointer;
+            }
+            button.primary {
+                background: var(--primary);
+                color: #fff;
+                border-color: var(--primary);
+            }
+            button:hover {
+                background: #eee;
+            }
+            button.primary:hover {
+                background: #0d8fe0;
+            }
+            .toolbar {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+            }
 
-  .tabs {
-    display: flex;
-    gap: 14px;
-    margin-bottom: 10px;
-  }
-  .tab-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    border: none;
-    border-radius: 0;
-    background: transparent;
-    padding: 8px 2px;
-    color: var(--text-muted);
-    border-bottom: 2px solid transparent;
-    font-size: 12px;
-  }
-  .tab-btn.active {
-    color: var(--primary);
-    border-bottom-color: var(--primary);
-    font-weight: 600;
-  }
-  .tab-count {
-    font-size: 10px;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 10px;
-    background: #eee;
-    color: var(--text-muted);
-  }
-  .tab-btn.active .tab-count { background: var(--primary-bg); color: var(--primary); }
+            .tabs {
+                display: flex;
+                gap: 14px;
+                margin-bottom: 10px;
+            }
+            .tab-btn {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                border: none;
+                border-radius: 0;
+                background: transparent;
+                padding: 8px 2px;
+                color: var(--text-muted);
+                border-bottom: 2px solid transparent;
+                font-size: 12px;
+            }
+            .tab-btn.active {
+                color: var(--primary);
+                border-bottom-color: var(--primary);
+                font-weight: 600;
+            }
+            .tab-count {
+                font-size: 10px;
+                font-weight: 600;
+                padding: 1px 6px;
+                border-radius: 10px;
+                background: #eee;
+                color: var(--text-muted);
+            }
+            .tab-btn.active .tab-count {
+                background: var(--primary-bg);
+                color: var(--primary);
+            }
 
-  .tab-view.hidden { display: none; }
+            .tab-view.hidden {
+                display: none;
+            }
 
-  .search-bar {
-    position: relative;
-    display: flex;
-    align-items: center;
-    margin-bottom: 4px;
-  }
-  .search-bar .search-icon {
-    position: absolute;
-    left: 9px;
-    width: 13px;
-    height: 13px;
-    color: var(--text-faint);
-    pointer-events: none;
-  }
-  .search-bar input {
-    flex: 1;
-    box-sizing: border-box;
-    padding: 7px 26px 7px 28px;
-    font-size: 11px;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
-  }
-  .search-bar input:focus { outline: none; border-color: var(--primary); }
-  .search-clear {
-    display: none;
-    position: absolute;
-    right: 2px;
-    border: none;
-    background: transparent;
-    color: var(--text-faint);
-    cursor: pointer;
-    font-size: 15px;
-    padding: 4px 8px;
-  }
-  .search-clear:hover { color: var(--danger); }
+            .search-bar {
+                position: relative;
+                display: flex;
+                align-items: center;
+                margin-bottom: 4px;
+            }
+            .search-bar .search-icon {
+                position: absolute;
+                left: 9px;
+                width: 13px;
+                height: 13px;
+                color: var(--text-faint);
+                pointer-events: none;
+            }
+            .search-bar input {
+                flex: 1;
+                box-sizing: border-box;
+                padding: 7px 26px 7px 28px;
+                font-size: 11px;
+                border-radius: var(--radius-sm);
+                border: 1px solid var(--border);
+            }
+            .search-bar input:focus {
+                outline: none;
+                border-color: var(--primary);
+            }
+            .search-clear {
+                display: none;
+                position: absolute;
+                right: 2px;
+                border: none;
+                background: transparent;
+                color: var(--text-faint);
+                cursor: pointer;
+                font-size: 15px;
+                padding: 4px 8px;
+            }
+            .search-clear:hover {
+                color: var(--danger);
+            }
 
-  .empty {
-    text-align: center;
-    color: var(--text-muted);
-    padding: 36px 16px;
-    font-size: 12px;
-  }
-  .empty svg {
-    width: 32px;
-    height: 32px;
-    color: var(--text-faint);
-    margin-bottom: 8px;
-  }
-  .empty .empty-title {
-    display: block;
-    color: var(--text);
-    font-weight: 600;
-    font-size: 12.5px;
-    margin-bottom: 4px;
-  }
-  .empty .empty-hint {
-    display: block;
-    color: var(--text-muted);
-  }
+            .empty {
+                text-align: center;
+                color: var(--text-muted);
+                padding: 36px 16px;
+                font-size: 12px;
+            }
+            .empty svg {
+                width: 32px;
+                height: 32px;
+                color: var(--text-faint);
+                margin-bottom: 8px;
+            }
+            .empty .empty-title {
+                display: block;
+                color: var(--text);
+                font-weight: 600;
+                font-size: 12.5px;
+                margin-bottom: 4px;
+            }
+            .empty .empty-hint {
+                display: block;
+                color: var(--text-muted);
+            }
 
-  /* Shared card */
-  .card {
-    position: relative;
-    background: #fff;
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius);
-    padding: 10px 12px;
-    margin-bottom: 8px;
-    transition: box-shadow .12s ease, border-color .12s ease;
-  }
-  .card:hover { border-color: var(--border); box-shadow: var(--shadow-hover); }
+            /* Shared card */
+            .card {
+                position: relative;
+                background: #fff;
+                border: 1px solid var(--border-light);
+                border-radius: var(--radius);
+                padding: 10px 12px;
+                margin-bottom: 8px;
+                transition:
+                    box-shadow 0.12s ease,
+                    border-color 0.12s ease;
+            }
+            .card:hover {
+                border-color: var(--border);
+                box-shadow: var(--shadow-hover);
+            }
 
-  .locate-corner {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-  }
+            .locate-corner {
+                position: absolute;
+                top: 6px;
+                right: 6px;
+            }
 
-  .icon-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    border-radius: var(--radius-sm);
-    border: 1px solid transparent;
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .icon-btn:hover { background: var(--primary-bg); border-color: var(--primary); color: var(--primary); }
-  .icon-btn svg { width: 14px; height: 14px; }
+            .icon-btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 24px;
+                height: 24px;
+                padding: 0;
+                border-radius: var(--radius-sm);
+                border: 1px solid transparent;
+                background: transparent;
+                color: var(--text-muted);
+                cursor: pointer;
+                flex-shrink: 0;
+            }
+            .icon-btn:hover {
+                background: var(--primary-bg);
+                border-color: var(--primary);
+                color: var(--primary);
+            }
+            .icon-btn svg {
+                width: 14px;
+                height: 14px;
+            }
 
-  .type-badge {
-    font-size: 10px;
-    font-weight: 600;
-    padding: 2px 9px;
-    border-radius: 10px;
-    white-space: nowrap;
-  }
-  .fallback-warning {
-    color: var(--danger);
-    cursor: help;
-    font-size: 12px;
-  }
+            .type-badge {
+                font-size: 10px;
+                font-weight: 600;
+                padding: 2px 9px;
+                border-radius: 10px;
+                white-space: nowrap;
+            }
+            .fallback-warning {
+                color: var(--danger);
+                cursor: help;
+                font-size: 12px;
+            }
 
-  /* Box card */
-  .box-card-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding-right: 28px;
-  }
-  .box-card-header .name { font-size: 13px; font-weight: 600; }
-  .box-card-header .type-badge { margin-left: auto; }
-  .box-detail {
-    margin: 6px 0 0 0;
-    color: var(--text-muted);
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .box-detail .tech-row { display: flex; align-items: center; gap: 6px; }
-  .box-detail .tech-label {
-    font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: .03em;
-    color: var(--text-faint);
-  }
-  .box-detail .tech {
-    display: inline-block;
-    font-size: 10px;
-    padding: 1px 8px;
-    border-radius: 10px;
-    background: #eef6ff;
-    color: #1a6fb0;
-  }
-  .box-detail .desc {
-    font-style: italic;
-    color: #555;
-    line-height: 1.45;
-    font-size: 11.5px;
-  }
+            /* Box card */
+            .box-card-header {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                padding-right: 28px;
+            }
+            .box-card-header .name {
+                font-size: 13px;
+                font-weight: 600;
+            }
+            .box-card-header .type-badge {
+                margin-left: auto;
+            }
+            .box-detail {
+                margin: 6px 0 0 0;
+                color: var(--text-muted);
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+            .box-detail .tech-row {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+            .box-detail .tech-label {
+                font-size: 9px;
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
+                color: var(--text-faint);
+            }
+            .box-detail .tech {
+                display: inline-block;
+                font-size: 10px;
+                padding: 1px 8px;
+                border-radius: 10px;
+                background: #eef6ff;
+                color: #1a6fb0;
+            }
+            .box-detail .desc {
+                font-style: italic;
+                color: #555;
+                line-height: 1.45;
+                font-size: 11.5px;
+            }
 
-  /* Relation card */
-  .relation-card { cursor: pointer; }
-  .relation-card.selected {
-    border-color: var(--primary);
-    box-shadow: 0 0 0 1px var(--primary);
-  }
-  .relation-endpoint {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding-right: 28px;
-  }
-  .relation-endpoint .name { font-weight: 600; font-size: 12.5px; }
-  .relation-endpoint .type-badge { margin-left: auto; }
-  .relation-connector {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 0 4px 2px;
-    color: var(--text-faint);
-  }
-  .relation-connector svg { width: 13px; height: 13px; flex-shrink: 0; }
-  .relation-connector .relation-label {
-    font-style: italic;
-    font-size: 11px;
-    color: var(--text-muted);
-  }
+            /* Relation card */
+            .relation-card {
+                cursor: pointer;
+            }
+            .relation-card.selected {
+                border-color: var(--primary);
+                box-shadow: 0 0 0 1px var(--primary);
+            }
+            .relation-endpoint {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                padding-right: 28px;
+            }
+            .relation-endpoint .name {
+                font-weight: 600;
+                font-size: 12.5px;
+            }
+            .relation-endpoint .type-badge {
+                margin-left: auto;
+            }
+            .relation-connector {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                padding: 4px 0 4px 2px;
+                color: var(--text-faint);
+            }
+            .relation-connector svg {
+                width: 13px;
+                height: 13px;
+                flex-shrink: 0;
+            }
+            .relation-connector .relation-label {
+                font-style: italic;
+                font-size: 11px;
+                color: var(--text-muted);
+            }
+            .relation-connector .relation-tech {
+                display: inline-block;
+                font-size: 10px;
+                font-weight: 600;
+                color: #6b7280;
+                background: #f1f5f9;
+                border: 1px solid #e2e8f0;
+                border-radius: 10px;
+                padding: 1px 7px;
+                margin-left: 4px;
+                white-space: nowrap;
+            }
 
-  /* Relation detail panel */
-  .relation-detail {
-    margin: 4px 0 12px;
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    border: 1px solid #d8e8fa;
-    background: #f7fbff;
-  }
-  .relation-detail.hidden { display: none; }
-  .relation-detail-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
-  }
-  .relation-detail-header .label-text { font-style: italic; color: var(--text-muted); font-size: 11.5px; }
-  .relation-detail-close {
-    border: none;
-    background: transparent;
-    color: var(--text-faint);
-    cursor: pointer;
-    font-size: 14px;
-    padding: 0 4px;
-  }
-  .relation-detail-close:hover { color: var(--danger); }
-  .endpoint-card { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; }
-  .endpoint-card + .endpoint-card { border-top: 1px dashed #d8e8fa; }
-  .endpoint-role {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: .03em;
-    color: #1a6fb0;
-    font-weight: 700;
-    width: 40px;
-    flex-shrink: 0;
-    padding-top: 3px;
-  }
-  .endpoint-body { flex: 1; min-width: 0; }
-  .endpoint-name-row { display: flex; align-items: center; gap: 6px; }
-  .endpoint-name-row .name { font-weight: 600; }
+            /* Relation detail panel */
+            .relation-detail {
+                margin: 4px 0 12px;
+                padding: 10px 12px;
+                border-radius: var(--radius);
+                border: 1px solid #d8e8fa;
+                background: #f7fbff;
+            }
+            .relation-detail.hidden {
+                display: none;
+            }
+            .relation-detail-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 8px;
+            }
+            .relation-detail-header .label-text {
+                font-style: italic;
+                color: var(--text-muted);
+                font-size: 11.5px;
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                flex-wrap: wrap;
+            }
+            .relation-detail-header .label-text .relation-tech {
+                font-style: normal;
+            }
+            .relation-detail-close {
+                border: none;
+                background: transparent;
+                color: var(--text-faint);
+                cursor: pointer;
+                font-size: 14px;
+                padding: 0 4px;
+            }
+            .relation-detail-close:hover {
+                color: var(--danger);
+            }
+            .endpoint-card {
+                display: flex;
+                align-items: flex-start;
+                gap: 8px;
+                padding: 6px 0;
+            }
+            .endpoint-card + .endpoint-card {
+                border-top: 1px dashed #d8e8fa;
+            }
+            .endpoint-role {
+                font-size: 10px;
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
+                color: #1a6fb0;
+                font-weight: 700;
+                width: 40px;
+                flex-shrink: 0;
+                padding-top: 3px;
+            }
+            .endpoint-body {
+                flex: 1;
+                min-width: 0;
+            }
+            .endpoint-name-row {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+            .endpoint-name-row .name {
+                font-weight: 600;
+            }
 
-  textarea {
-    width: 100%;
-    height: 320px;
-    box-sizing: border-box;
-    font-family: "SF Mono", Menlo, monospace;
-    font-size: 11px;
-    padding: 8px;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
-    resize: vertical;
-  }
-  .status { color: var(--text-muted); margin-top: 8px; font-size: 11px; }
-  .hidden { display: none; }
+            textarea {
+                width: 100%;
+                height: 320px;
+                box-sizing: border-box;
+                font-family: "SF Mono", Menlo, monospace;
+                font-size: 11px;
+                padding: 8px;
+                border-radius: var(--radius-sm);
+                border: 1px solid var(--border);
+                resize: vertical;
+            }
+            .status {
+                color: var(--text-muted);
+                margin-top: 8px;
+                font-size: 11px;
+            }
+            .hidden {
+                display: none;
+            }
 
-  .export-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-  .format-toggle {
-    display: inline-flex;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    overflow: hidden;
-  }
-  .format-toggle .format-btn {
-    border: none;
-    border-radius: 0;
-    background: #f7f7f8;
-  }
-  .format-toggle .format-btn + .format-btn { border-left: 1px solid var(--border); }
-  .format-toggle .format-btn.active { background: var(--primary); color: #fff; }
-</style>
-</head>
-<body>
-  <div class="sticky-header">
-    <div class="title-row">
-      <div class="title-left">
-        <svg class="app-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="32" height="32" rx="7" fill="#18a0fb"/>
-          <rect x="4" y="5" width="9" height="7" rx="1.5" fill="#fff"/>
-          <rect x="19" y="5" width="9" height="7" rx="1.5" fill="#fff" fill-opacity="0.85"/>
-          <rect x="11.5" y="20" width="9" height="7" rx="1.5" fill="#fff" fill-opacity="0.7"/>
-          <path d="M8.5 12v3.5a2 2 0 0 0 2 2h5m0 0h5a2 2 0 0 0 2-2V12" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M16 17.5V20" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
-        </svg>
-        <h2>C4 Relations</h2>
-      </div>
-      <button id="refresh" title="Re-extract from canvas">&#8635; Refresh</button>
-    </div>
+            .export-toolbar {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 8px;
+            }
+            .format-toggle {
+                display: inline-flex;
+                border: 1px solid var(--border);
+                border-radius: var(--radius-sm);
+                overflow: hidden;
+            }
+            .format-toggle .format-btn {
+                border: none;
+                border-radius: 0;
+                background: #f7f7f8;
+            }
+            .format-toggle .format-btn + .format-btn {
+                border-left: 1px solid var(--border);
+            }
+            .format-toggle .format-btn.active {
+                background: var(--primary);
+                color: #fff;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="sticky-header">
+            <div class="title-row">
+                <div class="title-left">
+                    <svg
+                        class="app-icon"
+                        viewBox="0 0 32 32"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                    >
+                        <rect width="32" height="32" rx="7" fill="#18a0fb" />
+                        <rect
+                            x="4"
+                            y="5"
+                            width="9"
+                            height="7"
+                            rx="1.5"
+                            fill="#fff"
+                        />
+                        <rect
+                            x="19"
+                            y="5"
+                            width="9"
+                            height="7"
+                            rx="1.5"
+                            fill="#fff"
+                            fill-opacity="0.85"
+                        />
+                        <rect
+                            x="11.5"
+                            y="20"
+                            width="9"
+                            height="7"
+                            rx="1.5"
+                            fill="#fff"
+                            fill-opacity="0.7"
+                        />
+                        <path
+                            d="M8.5 12v3.5a2 2 0 0 0 2 2h5m0 0h5a2 2 0 0 0 2-2V12"
+                            stroke="#fff"
+                            stroke-width="1.4"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        />
+                        <path
+                            d="M16 17.5V20"
+                            stroke="#fff"
+                            stroke-width="1.4"
+                            stroke-linecap="round"
+                        />
+                    </svg>
+                    <h2>C4 Relations</h2>
+                </div>
+                <button id="refresh" title="Re-extract from canvas">
+                    &#8635; Refresh
+                </button>
+            </div>
 
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="relations">Relations <span class="tab-count" id="relation-count">0</span></button>
-      <button class="tab-btn" data-tab="boxes">Boxes <span class="tab-count" id="box-count">0</span></button>
-      <button class="tab-btn" data-tab="export">Export</button>
-    </div>
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="relations">
+                    Relations
+                    <span class="tab-count" id="relation-count">0</span>
+                </button>
+                <button class="tab-btn" data-tab="boxes">
+                    Boxes <span class="tab-count" id="box-count">0</span>
+                </button>
+                <button class="tab-btn" data-tab="export">Export</button>
+            </div>
 
-    <div class="search-bar" id="search-bar">
-      <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="11" cy="11" r="7"></circle>
-        <path d="M21 21l-4.3-4.3"></path>
-      </svg>
-      <input type="text" id="search-input" placeholder="Search by name, description or technology..." />
-      <button class="search-clear" id="search-clear" title="Clear search">&times;</button>
-    </div>
-  </div>
-
-  <div class="content">
-    <div id="relations-view" class="tab-view">
-      <div id="relations"></div>
-      <div id="relation-detail" class="relation-detail hidden"></div>
-    </div>
-
-    <div id="boxes-view" class="tab-view hidden">
-      <div class="boxes" id="boxes"></div>
-    </div>
-
-    <div id="export-view" class="tab-view hidden">
-      <div class="export-toolbar">
-        <div class="format-toggle">
-          <button class="format-btn active" id="format-mermaid" data-format="mermaid" title="Text diagram syntax you can paste into any Mermaid-compatible tool (e.g. mermaid.live or Markdown docs) to render the C4 diagram.">Mermaid C4</button>
-          <button class="format-btn" id="format-likec4" data-format="likec4" title="Text format for the LikeC4 tool, for teams that keep their C4 model as versioned code.">LikeC4 DSL</button>
+            <div class="search-bar" id="search-bar">
+                <svg
+                    class="search-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <circle cx="11" cy="11" r="7"></circle>
+                    <path d="M21 21l-4.3-4.3"></path>
+                </svg>
+                <input
+                    type="text"
+                    id="search-input"
+                    placeholder="Search by name, description or technology..."
+                />
+                <button
+                    class="search-clear"
+                    id="search-clear"
+                    title="Clear search"
+                >
+                    &times;
+                </button>
+            </div>
         </div>
-        <button id="copy" class="primary">Copy to clipboard</button>
-      </div>
-      <textarea id="mermaid-output" readonly></textarea>
-      <div id="copy-status" class="status"></div>
-    </div>
-  </div>
-
-  <script>
-    let currentBoxes = [];
-    let currentRelations = [];
-    let selectedRelationId = null;
-    let searchQuery = '';
-    let exportFormat = 'mermaid';
-
-    const relationsEl = document.getElementById('relations');
-    const boxesEl = document.getElementById('boxes');
-    const boxCountEl = document.getElementById('box-count');
-    const relationCountEl = document.getElementById('relation-count');
-    const relationDetailEl = document.getElementById('relation-detail');
-    const mermaidOutput = document.getElementById('mermaid-output');
-    const copyBtn = document.getElementById('copy');
-    const copyStatus = document.getElementById('copy-status');
-    const searchBarEl = document.getElementById('search-bar');
-    const searchInputEl = document.getElementById('search-input');
-    const searchClearEl = document.getElementById('search-clear');
-    const formatButtons = document.querySelectorAll('.format-btn');
-
-    const tabButtons = document.querySelectorAll('.tab-btn');
-    const tabViews = {
-      relations: document.getElementById('relations-view'),
-      boxes: document.getElementById('boxes-view'),
-      export: document.getElementById('export-view'),
-    };
-
-    function renderExportOutput() {
-      mermaidOutput.value =
-        exportFormat === 'likec4' ? toLikeC4Dsl(currentBoxes, currentRelations) : toMermaidC4(currentBoxes, currentRelations);
-      copyStatus.textContent = '';
-    }
-
-    function showTab(name) {
-      tabButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === name));
-      Object.entries(tabViews).forEach(([key, el]) => el.classList.toggle('hidden', key !== name));
-      searchBarEl.classList.toggle('hidden', name === 'export');
-      if (name === 'export') {
-        renderExportOutput();
-      }
-    }
-
-    tabButtons.forEach((btn) => {
-      btn.onclick = () => showTab(btn.dataset.tab);
-    });
-
-    formatButtons.forEach((btn) => {
-      btn.onclick = () => {
-        exportFormat = btn.dataset.format;
-        formatButtons.forEach((b) => b.classList.toggle('active', b === btn));
-        renderExportOutput();
-      };
-    });
-
-    var DIACRITIC_RE = new RegExp('[̀-ͯ]', 'g');
-    function normalizeSearch(str) {
-      return String(str || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(DIACRITIC_RE, '');
-    }
-
-    function matchesSearch(fields) {
-      const query = normalizeSearch(searchQuery).trim();
-      if (!query) return true;
-      const haystack = normalizeSearch(fields.filter(Boolean).join(' '));
-      return query.split(/\s+/).every((term) => haystack.includes(term));
-    }
-
-    function boxMatchesSearch(b) {
-      return matchesSearch([b.name, b.description, b.technology, b.elementType]);
-    }
-
-    function relationMatchesSearch(r) {
-      const sourceBox = findBox(r.source);
-      const targetBox = findBox(r.target);
-      return matchesSearch([
-        r.sourceName,
-        r.targetName,
-        r.label,
-        sourceBox && sourceBox.description,
-        sourceBox && sourceBox.technology,
-        sourceBox && sourceBox.elementType,
-        targetBox && targetBox.description,
-        targetBox && targetBox.technology,
-        targetBox && targetBox.elementType,
-      ]);
-    }
-
-    searchInputEl.addEventListener('input', () => {
-      searchQuery = searchInputEl.value;
-      searchClearEl.style.display = searchQuery ? 'inline-flex' : 'none';
-      renderBoxes();
-      renderRelations();
-    });
-
-    searchClearEl.onclick = () => {
-      searchInputEl.value = '';
-      searchQuery = '';
-      searchClearEl.style.display = 'none';
-      renderBoxes();
-      renderRelations();
-      searchInputEl.focus();
-    };
-
-    document.getElementById('refresh').onclick = () => {
-      parent.postMessage({ pluginMessage: { type: 'extract' } }, '*');
-    };
-
-    copyBtn.onclick = async () => {
-      try {
-        await navigator.clipboard.writeText(mermaidOutput.value);
-        copyStatus.textContent = 'Copied to clipboard.';
-      } catch (e) {
-        mermaidOutput.select();
-        document.execCommand('copy');
-        copyStatus.textContent = 'Copied to clipboard.';
-      }
-    };
-
-    function fallbackWarningHtml(isFallback) {
-      return isFallback
-        ? '<span class="fallback-warning" title="Name taken from the Figma layer name (no text was detected); you may want to review this shape.">&#9888;</span>'
-        : '';
-    }
-
-    function emptyStateHtml(iconSvg, title, hint) {
-      return '<div class="empty">' + iconSvg +
-        '<span class="empty-title">' + title + '</span>' +
-        '<span class="empty-hint">' + hint + '</span>' +
-        '</div>';
-    }
-
-    const EMPTY_ICON_SVG =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
-      'stroke-linecap="round" stroke-linejoin="round">' +
-      '<circle cx="11" cy="11" r="7"></circle>' +
-      '<path d="M21 21l-4.3-4.3"></path>' +
-      '</svg>';
-
-    function renderBoxes() {
-      const filtered = currentBoxes.filter(boxMatchesSearch);
-      boxCountEl.textContent =
-        filtered.length === currentBoxes.length ? currentBoxes.length : filtered.length + '/' + currentBoxes.length;
-      boxesEl.innerHTML = '';
-      if (currentBoxes.length === 0) {
-        boxesEl.innerHTML = emptyStateHtml(EMPTY_ICON_SVG, 'No boxes yet', 'Run Refresh to extract shapes from the FigJam canvas.');
-        return;
-      }
-      if (filtered.length === 0) {
-        boxesEl.innerHTML = emptyStateHtml(EMPTY_ICON_SVG, 'No matches', 'No boxes match your search.');
-        return;
-      }
-      filtered.forEach((b) => {
-        const item = document.createElement('div');
-        item.className = 'card box-card';
-        item.setAttribute('data-id', b.id);
-        const isFallback = b.labelSource === 'node-name-fallback';
-
-        const header = document.createElement('div');
-        header.className = 'box-card-header';
-        header.innerHTML =
-          '<span class="name">' + escapeHtml(b.name) + '</span>' +
-          fallbackWarningHtml(isFallback) +
-          typeBadgeHtml(b.elementType);
-        item.appendChild(header);
-
-        const locateBtn = document.createElement('button');
-        locateBtn.className = 'icon-btn locate-corner';
-        locateBtn.setAttribute('data-id', b.id);
-        locateBtn.title = 'Go to element on canvas';
-        locateBtn.innerHTML = LOCATE_ICON_SVG;
-        item.appendChild(locateBtn);
-
-        if (b.technology || b.description) {
-          item.appendChild(renderBoxDetail(b.technology, b.description));
-        }
-
-        boxesEl.appendChild(item);
-      });
-    }
-
-    const KNOWN_TYPE_COLORS = {
-      'person': { bg: '#f3e8ff', fg: '#7c3aed' },
-      'software system': { bg: '#e6f7ee', fg: '#1f9254' },
-      'external system': { bg: '#f2eee0', fg: '#8a6d1f' },
-      'container': { bg: '#e8f0fe', fg: '#1a56b0' },
-      'component': { bg: '#ffe8ef', fg: '#c23163' },
-      'database': { bg: '#e3f6f6', fg: '#0d7a7a' },
-    };
-    const FALLBACK_TYPE_COLORS = [
-      { bg: '#fff4e0', fg: '#b56a00' },
-      { bg: '#e8f0fe', fg: '#1a56b0' },
-      { bg: '#f3e8ff', fg: '#7c3aed' },
-      { bg: '#e6f7ee', fg: '#1f9254' },
-      { bg: '#ffe8ef', fg: '#c23163' },
-      { bg: '#e3f6f6', fg: '#0d7a7a' },
-    ];
-
-    function hashStr(str) {
-      let h = 0;
-      for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
-      return Math.abs(h);
-    }
-
-    function typeBadgeHtml(elementType) {
-      if (!elementType) return '';
-      const key = elementType.trim().toLowerCase();
-      const color = KNOWN_TYPE_COLORS[key] || FALLBACK_TYPE_COLORS[hashStr(key) % FALLBACK_TYPE_COLORS.length];
-      return '<span class="type-badge" style="background: ' + color.bg + '; color: ' + color.fg + ';">' +
-        escapeHtml(elementType) +
-        '</span>';
-    }
-
-    function renderBoxDetail(technology, description) {
-      const detail = document.createElement('div');
-      detail.className = 'box-detail';
-      detail.innerHTML =
-        (technology
-          ? '<div class="tech-row"><span class="tech-label">Tech</span><span class="tech">' + escapeHtml(technology) + '</span></div>'
-          : '') +
-        (description ? '<div class="desc">' + escapeHtml(description) + '</div>' : '');
-      return detail;
-    }
-
-    const LOCATE_ICON_SVG =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-      'stroke-linecap="round" stroke-linejoin="round">' +
-      '<circle cx="12" cy="12" r="3"></circle>' +
-      '<path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path>' +
-      '</svg>';
-
-    const DOWN_ARROW_SVG =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-      'stroke-linecap="round" stroke-linejoin="round">' +
-      '<path d="M12 4v14M6 13l6 6 6-6"></path>' +
-      '</svg>';
-
-    boxesEl.addEventListener('click', (event) => {
-      const btn = event.target.closest('.icon-btn');
-      if (!btn) return;
-      const id = btn.getAttribute('data-id');
-      if (id) {
-        parent.postMessage({ pluginMessage: { type: 'focus', id } }, '*');
-      }
-    });
-
-    function renderRelations() {
-      const filtered = currentRelations.filter(relationMatchesSearch);
-      relationCountEl.textContent =
-        filtered.length === currentRelations.length
-          ? currentRelations.length
-          : filtered.length + '/' + currentRelations.length;
-      relationsEl.innerHTML = '';
-      if (currentRelations.length === 0) {
-        relationsEl.innerHTML = emptyStateHtml(EMPTY_ICON_SVG, 'No relations yet', 'No connectors were found between shapes on this page.');
-        hideRelationDetail();
-        return;
-      }
-      if (filtered.length === 0) {
-        relationsEl.innerHTML = emptyStateHtml(EMPTY_ICON_SVG, 'No matches', 'No relations match your search.');
-        hideRelationDetail();
-        return;
-      }
-      filtered.forEach((r) => {
-        const sourceBox = findBox(r.source);
-        const targetBox = findBox(r.target);
-
-        const card = document.createElement('div');
-        card.className = 'card relation-card' + (r.id === selectedRelationId ? ' selected' : '');
-        card.setAttribute('data-relation-id', r.id);
-
-        const sourceRow = document.createElement('div');
-        sourceRow.className = 'relation-endpoint';
-        sourceRow.innerHTML =
-          '<button class="icon-btn" data-id="' + escapeHtml(r.source) + '" title="Go to this element on canvas">' +
-            LOCATE_ICON_SVG +
-          '</button>' +
-          '<span class="name">' + escapeHtml(r.sourceName) + '</span>' +
-          fallbackWarningHtml(sourceBox && sourceBox.labelSource === 'node-name-fallback') +
-          typeBadgeHtml(sourceBox && sourceBox.elementType);
-
-        const connector = document.createElement('div');
-        connector.className = 'relation-connector';
-        connector.innerHTML =
-          DOWN_ARROW_SVG + '<span class="relation-label">' + (r.label ? escapeHtml(r.label) : '(no label)') + '</span>';
-
-        const targetRow = document.createElement('div');
-        targetRow.className = 'relation-endpoint';
-        targetRow.innerHTML =
-          '<button class="icon-btn" data-id="' + escapeHtml(r.target) + '" title="Go to this element on canvas">' +
-            LOCATE_ICON_SVG +
-          '</button>' +
-          '<span class="name">' + escapeHtml(r.targetName) + '</span>' +
-          fallbackWarningHtml(targetBox && targetBox.labelSource === 'node-name-fallback') +
-          typeBadgeHtml(targetBox && targetBox.elementType);
-
-        const locateBtn = document.createElement('button');
-        locateBtn.className = 'icon-btn locate-corner';
-        locateBtn.setAttribute('data-id', r.id);
-        locateBtn.title = 'Go to connector on canvas';
-        locateBtn.innerHTML = LOCATE_ICON_SVG;
-
-        card.appendChild(sourceRow);
-        card.appendChild(connector);
-        card.appendChild(targetRow);
-        card.appendChild(locateBtn);
-        relationsEl.appendChild(card);
-      });
-
-      if (selectedRelationId && filtered.some((r) => r.id === selectedRelationId)) {
-        renderRelationDetail(selectedRelationId);
-      } else {
-        hideRelationDetail();
-      }
-    }
-
-    function findBox(id) {
-      return currentBoxes.find((b) => b.id === id) || null;
-    }
-
-    function renderEndpointCard(role, nodeId, fallbackName) {
-      const box = findBox(nodeId);
-      const name = box ? box.name : fallbackName;
-      const isFallback = box && box.labelSource === 'node-name-fallback';
-      const card = document.createElement('div');
-      card.className = 'endpoint-card';
-
-      const nameRow = document.createElement('div');
-      nameRow.className = 'endpoint-name-row';
-      nameRow.innerHTML =
-        '<button class="icon-btn" data-id="' + escapeHtml(nodeId) + '" title="Go to element on canvas">' +
-          LOCATE_ICON_SVG +
-        '</button>' +
-        '<span class="name">' + escapeHtml(name) + '</span>' +
-        (box ? fallbackWarningHtml(isFallback) : '') +
-        (box ? typeBadgeHtml(box.elementType) : '');
-
-      const roleEl = document.createElement('div');
-      roleEl.className = 'endpoint-role';
-      roleEl.textContent = role;
-
-      const body = document.createElement('div');
-      body.className = 'endpoint-body';
-      body.appendChild(nameRow);
-      if (box && (box.technology || box.description)) {
-        body.appendChild(renderBoxDetail(box.technology, box.description));
-      }
-
-      card.appendChild(roleEl);
-      card.appendChild(body);
-      return card;
-    }
-
-    function renderRelationDetail(relationId) {
-      const relation = currentRelations.find((r) => r.id === relationId);
-      if (!relation) {
-        hideRelationDetail();
-        return;
-      }
-      relationDetailEl.innerHTML = '';
-
-      const header = document.createElement('div');
-      header.className = 'relation-detail-header';
-      header.innerHTML =
-        '<span class="label-text">' + (relation.label ? escapeHtml(relation.label) : '(no label)') + '</span>' +
-        '<button class="relation-detail-close" title="Close">&times;</button>';
-      relationDetailEl.appendChild(header);
-      header.querySelector('.relation-detail-close').onclick = () => {
-        selectedRelationId = null;
-        hideRelationDetail();
-        relationsEl.querySelectorAll('.relation-card.selected').forEach((el) => el.classList.remove('selected'));
-      };
-
-      relationDetailEl.appendChild(renderEndpointCard('Start', relation.source, relation.sourceName));
-      relationDetailEl.appendChild(renderEndpointCard('End', relation.target, relation.targetName));
-
-      const row = relationsEl.querySelector('.relation-card[data-relation-id="' + relationId + '"]');
-      if (row) {
-        row.insertAdjacentElement('afterend', relationDetailEl);
-      }
-
-      relationDetailEl.classList.remove('hidden');
-    }
-
-    function hideRelationDetail() {
-      relationDetailEl.classList.add('hidden');
-      relationDetailEl.innerHTML = '';
-    }
-
-    relationsEl.addEventListener('click', (event) => {
-      const focusBtn = event.target.closest('.icon-btn');
-      if (focusBtn) {
-        const id = focusBtn.getAttribute('data-id');
-        if (id) {
-          parent.postMessage({ pluginMessage: { type: 'focus', id } }, '*');
-        }
-      }
-      const row = event.target.closest('.relation-card');
-      if (!row) return;
-      const relationId = row.getAttribute('data-relation-id');
-      selectedRelationId = focusBtn ? relationId : (selectedRelationId === relationId ? null : relationId);
-      relationsEl.querySelectorAll('.relation-card').forEach((el) => {
-        el.classList.toggle('selected', el.getAttribute('data-relation-id') === selectedRelationId);
-      });
-      if (selectedRelationId) {
-        renderRelationDetail(selectedRelationId);
-      } else {
-        hideRelationDetail();
-      }
-    });
-
-    relationDetailEl.addEventListener('click', (event) => {
-      const btn = event.target.closest('.icon-btn');
-      if (!btn) return;
-      const id = btn.getAttribute('data-id');
-      if (id) {
-        parent.postMessage({ pluginMessage: { type: 'focus', id } }, '*');
-      }
-    });
-
-    function escapeHtml(str) {
-      return String(str).replace(/[&<>"']/g, (c) => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-      }[c]));
-    }
-
-    function slugify(name, used) {
-      let base = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-      if (!base) base = 'node';
-      if (/^[0-9]/.test(base)) base = 'n_' + base;
-      let id = base;
-      let i = 1;
-      while (used.has(id)) {
-        id = base + '_' + (i++);
-      }
-      used.add(id);
-      return id;
-    }
-
-    function esc(str) {
-      return String(str || '').replace(/"/g, '\\"');
-    }
-
-    function buildIdMap(boxes) {
-      const used = new Set();
-      const idMap = new Map();
-      boxes.forEach((b) => idMap.set(b.id, slugify(b.name, used)));
-      return idMap;
-    }
-
-    function toMermaidC4(boxes, relations) {
-      const idMap = buildIdMap(boxes);
-
-      const lines = ['C4Container', ''];
-      boxes.forEach((b) => {
-        const id = idMap.get(b.id);
-        const args = ['"' + esc(b.name) + '"'];
-        if (b.description) {
-          args.push('"' + esc(b.technology) + '"', '"' + esc(b.description) + '"');
-        } else if (b.technology) {
-          args.push('"' + esc(b.technology) + '"');
-        }
-        lines.push('Container(' + id + ', ' + args.join(', ') + ')');
-      });
-      lines.push('');
-      relations.forEach((r) => {
-        const s = idMap.get(r.source);
-        const t = idMap.get(r.target);
-        if (!s || !t) return;
-        const label = esc(r.label);
-        lines.push('Rel(' + s + ', ' + t + ', "' + label + '")');
-      });
-      return lines.join('\n');
-    }
-
-    const LIKEC4_KNOWN_KINDS = {
-      'person': 'person',
-      'software system': 'softwareSystem',
-      'external system': 'externalSystem',
-      'container': 'container',
-      'component': 'component',
-      'database': 'database',
-    };
-
-    // Turns an arbitrary element-type string (e.g. "Message Queue") into a
-    // valid LikeC4 kind identifier ("messageQueue").
-    function toCamelIdentifier(raw, fallback) {
-      const words = raw
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, ' ')
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean);
-      if (words.length === 0) return fallback;
-      return words[0] + words.slice(1).map((w) => w[0].toUpperCase() + w.slice(1)).join('');
-    }
-
-    function likeC4KindFor(box) {
-      const raw = (box.elementType || '').trim().toLowerCase();
-      if (!raw) return 'component';
-      return LIKEC4_KNOWN_KINDS[raw] || toCamelIdentifier(raw, 'component');
-    }
-
-    function toLikeC4Dsl(boxes, relations) {
-      const idMap = buildIdMap(boxes);
-      const kindFor = new Map(boxes.map((b) => [b.id, likeC4KindFor(b)]));
-      const kindsUsed = Array.from(new Set(kindFor.values())).sort();
-
-      const lines = ['specification {'];
-      kindsUsed.forEach((k) => lines.push('  element ' + k));
-      lines.push('}', '', 'model {');
-
-      boxes.forEach((b) => {
-        const id = idMap.get(b.id);
-        const kind = kindFor.get(b.id);
-        const hasBody = Boolean(b.technology || b.description);
-        if (!hasBody) {
-          lines.push('  ' + kind + ' ' + id + ' "' + esc(b.name) + '"');
-          return;
-        }
-        lines.push('  ' + kind + ' ' + id + ' "' + esc(b.name) + '" {');
-        if (b.technology) lines.push('    technology "' + esc(b.technology) + '"');
-        if (b.description) lines.push('    description "' + esc(b.description) + '"');
-        lines.push('  }');
-      });
-
-      lines.push('');
-      relations.forEach((r) => {
-        const s = idMap.get(r.source);
-        const t = idMap.get(r.target);
-        if (!s || !t) return;
-        lines.push('  ' + s + ' -> ' + t + (r.label ? ' "' + esc(r.label) + '"' : ''));
-      });
-
-      lines.push('}', '', 'views {', '  view index {', '    include *', '  }', '}');
-
-      return lines.join('\n');
-    }
-
-    window.onmessage = (event) => {
-      const msg = event.data.pluginMessage;
-      if (!msg) return;
-      if (msg.type === 'relations') {
-        currentBoxes = msg.boxes || [];
-        currentRelations = msg.relations || [];
-        if (msg.focusRelationId) {
-          selectedRelationId = msg.focusRelationId;
-          showTab('relations');
-        }
-        renderBoxes();
-        renderRelations();
-        if (msg.focusRelationId) {
-          const card = relationsEl.querySelector('.relation-card[data-relation-id="' + msg.focusRelationId + '"]');
-          if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-        if (!tabViews.export.classList.contains('hidden')) {
-          renderExportOutput();
-        }
-      }
-    };
-
-    // Tell the plugin we're ready to receive messages. figma.showUI() loads
-    // this iframe asynchronously, so if the plugin fires its initial extract
-    // right after showUI() (as it used to), the message can arrive before
-    // window.onmessage above is attached and gets silently dropped - leaving
-    // the panel empty until the user manually clicks Refresh. Sending this
-    // ready ping (after the listener is attached) and having the plugin wait
-    // for it removes that race.
-    parent.postMessage({ pluginMessage: { type: 'ui-ready' } }, '*');
-  </script>
-</body>
+
+        <div class="content">
+            <div id="relations-view" class="tab-view">
+                <div id="relations"></div>
+                <div id="relation-detail" class="relation-detail hidden"></div>
+            </div>
+
+            <div id="boxes-view" class="tab-view hidden">
+                <div class="boxes" id="boxes"></div>
+            </div>
+
+            <div id="export-view" class="tab-view hidden">
+                <div class="export-toolbar">
+                    <div class="format-toggle">
+                        <button
+                            class="format-btn active"
+                            id="format-mermaid"
+                            data-format="mermaid"
+                            title="Text diagram syntax you can paste into any Mermaid-compatible tool (e.g. mermaid.live or Markdown docs) to render the C4 diagram."
+                        >
+                            Mermaid C4
+                        </button>
+                        <button
+                            class="format-btn"
+                            id="format-likec4"
+                            data-format="likec4"
+                            title="Text format for the LikeC4 tool, for teams that keep their C4 model as versioned code."
+                        >
+                            LikeC4 DSL
+                        </button>
+                    </div>
+                    <button id="copy" class="primary">Copy to clipboard</button>
+                </div>
+                <textarea id="mermaid-output" readonly></textarea>
+                <div id="copy-status" class="status"></div>
+            </div>
+        </div>
+
+        <script>
+            let currentBoxes = [];
+            let currentRelations = [];
+            let selectedRelationId = null;
+            let searchQuery = "";
+            let exportFormat = "mermaid";
+
+            const relationsEl = document.getElementById("relations");
+            const boxesEl = document.getElementById("boxes");
+            const boxCountEl = document.getElementById("box-count");
+            const relationCountEl = document.getElementById("relation-count");
+            const relationDetailEl = document.getElementById("relation-detail");
+            const mermaidOutput = document.getElementById("mermaid-output");
+            const copyBtn = document.getElementById("copy");
+            const copyStatus = document.getElementById("copy-status");
+            const searchBarEl = document.getElementById("search-bar");
+            const searchInputEl = document.getElementById("search-input");
+            const searchClearEl = document.getElementById("search-clear");
+            const formatButtons = document.querySelectorAll(".format-btn");
+
+            const tabButtons = document.querySelectorAll(".tab-btn");
+            const tabViews = {
+                relations: document.getElementById("relations-view"),
+                boxes: document.getElementById("boxes-view"),
+                export: document.getElementById("export-view"),
+            };
+
+            function renderExportOutput() {
+                mermaidOutput.value =
+                    exportFormat === "likec4"
+                        ? toLikeC4Dsl(currentBoxes, currentRelations)
+                        : toMermaidC4(currentBoxes, currentRelations);
+                copyStatus.textContent = "";
+            }
+
+            function showTab(name) {
+                tabButtons.forEach((btn) =>
+                    btn.classList.toggle("active", btn.dataset.tab === name),
+                );
+                Object.entries(tabViews).forEach(([key, el]) =>
+                    el.classList.toggle("hidden", key !== name),
+                );
+                searchBarEl.classList.toggle("hidden", name === "export");
+                if (name === "export") {
+                    renderExportOutput();
+                }
+            }
+
+            tabButtons.forEach((btn) => {
+                btn.onclick = () => showTab(btn.dataset.tab);
+            });
+
+            formatButtons.forEach((btn) => {
+                btn.onclick = () => {
+                    exportFormat = btn.dataset.format;
+                    formatButtons.forEach((b) =>
+                        b.classList.toggle("active", b === btn),
+                    );
+                    renderExportOutput();
+                };
+            });
+
+            var DIACRITIC_RE = new RegExp("[̀-ͯ]", "g");
+            function normalizeSearch(str) {
+                return String(str || "")
+                    .toLowerCase()
+                    .normalize("NFD")
+                    .replace(DIACRITIC_RE, "");
+            }
+
+            function matchesSearch(fields) {
+                const query = normalizeSearch(searchQuery).trim();
+                if (!query) return true;
+                const haystack = normalizeSearch(
+                    fields.filter(Boolean).join(" "),
+                );
+                return query
+                    .split(/\s+/)
+                    .every((term) => haystack.includes(term));
+            }
+
+            function boxMatchesSearch(b) {
+                return matchesSearch([
+                    b.name,
+                    b.description,
+                    b.technology,
+                    b.elementType,
+                ]);
+            }
+
+            function relationMatchesSearch(r) {
+                const sourceBox = findBox(r.source);
+                const targetBox = findBox(r.target);
+                return matchesSearch([
+                    r.sourceName,
+                    r.targetName,
+                    r.label,
+                    r.technology,
+                    sourceBox && sourceBox.description,
+                    sourceBox && sourceBox.technology,
+                    sourceBox && sourceBox.elementType,
+                    targetBox && targetBox.description,
+                    targetBox && targetBox.technology,
+                    targetBox && targetBox.elementType,
+                ]);
+            }
+
+            searchInputEl.addEventListener("input", () => {
+                searchQuery = searchInputEl.value;
+                searchClearEl.style.display = searchQuery
+                    ? "inline-flex"
+                    : "none";
+                renderBoxes();
+                renderRelations();
+            });
+
+            searchClearEl.onclick = () => {
+                searchInputEl.value = "";
+                searchQuery = "";
+                searchClearEl.style.display = "none";
+                renderBoxes();
+                renderRelations();
+                searchInputEl.focus();
+            };
+
+            document.getElementById("refresh").onclick = () => {
+                parent.postMessage({ pluginMessage: { type: "extract" } }, "*");
+            };
+
+            copyBtn.onclick = async () => {
+                try {
+                    await navigator.clipboard.writeText(mermaidOutput.value);
+                    copyStatus.textContent = "Copied to clipboard.";
+                } catch (e) {
+                    mermaidOutput.select();
+                    document.execCommand("copy");
+                    copyStatus.textContent = "Copied to clipboard.";
+                }
+            };
+
+            function fallbackWarningHtml(isFallback) {
+                return isFallback
+                    ? '<span class="fallback-warning" title="Name taken from the Figma layer name (no text was detected); you may want to review this shape.">&#9888;</span>'
+                    : "";
+            }
+
+            function emptyStateHtml(iconSvg, title, hint) {
+                return (
+                    '<div class="empty">' +
+                    iconSvg +
+                    '<span class="empty-title">' +
+                    title +
+                    "</span>" +
+                    '<span class="empty-hint">' +
+                    hint +
+                    "</span>" +
+                    "</div>"
+                );
+            }
+
+            const EMPTY_ICON_SVG =
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
+                'stroke-linecap="round" stroke-linejoin="round">' +
+                '<circle cx="11" cy="11" r="7"></circle>' +
+                '<path d="M21 21l-4.3-4.3"></path>' +
+                "</svg>";
+
+            function renderBoxes() {
+                const filtered = currentBoxes.filter(boxMatchesSearch);
+                boxCountEl.textContent =
+                    filtered.length === currentBoxes.length
+                        ? currentBoxes.length
+                        : filtered.length + "/" + currentBoxes.length;
+                boxesEl.innerHTML = "";
+                if (currentBoxes.length === 0) {
+                    boxesEl.innerHTML = emptyStateHtml(
+                        EMPTY_ICON_SVG,
+                        "No boxes yet",
+                        "Run Refresh to extract shapes from the FigJam canvas.",
+                    );
+                    return;
+                }
+                if (filtered.length === 0) {
+                    boxesEl.innerHTML = emptyStateHtml(
+                        EMPTY_ICON_SVG,
+                        "No matches",
+                        "No boxes match your search.",
+                    );
+                    return;
+                }
+                filtered.forEach((b) => {
+                    const item = document.createElement("div");
+                    item.className = "card box-card";
+                    item.setAttribute("data-id", b.id);
+                    const isFallback = b.labelSource === "node-name-fallback";
+
+                    const header = document.createElement("div");
+                    header.className = "box-card-header";
+                    header.innerHTML =
+                        '<span class="name">' +
+                        escapeHtml(b.name) +
+                        "</span>" +
+                        fallbackWarningHtml(isFallback) +
+                        typeBadgeHtml(b.elementType);
+                    item.appendChild(header);
+
+                    const locateBtn = document.createElement("button");
+                    locateBtn.className = "icon-btn locate-corner";
+                    locateBtn.setAttribute("data-id", b.id);
+                    locateBtn.title = "Go to element on canvas";
+                    locateBtn.innerHTML = LOCATE_ICON_SVG;
+                    item.appendChild(locateBtn);
+
+                    if (b.technology || b.description) {
+                        item.appendChild(
+                            renderBoxDetail(b.technology, b.description),
+                        );
+                    }
+
+                    boxesEl.appendChild(item);
+                });
+            }
+
+            const KNOWN_TYPE_COLORS = {
+                person: { bg: "#f3e8ff", fg: "#7c3aed" },
+                "software system": { bg: "#e6f7ee", fg: "#1f9254" },
+                "external system": { bg: "#f2eee0", fg: "#8a6d1f" },
+                container: { bg: "#e8f0fe", fg: "#1a56b0" },
+                component: { bg: "#ffe8ef", fg: "#c23163" },
+                database: { bg: "#e3f6f6", fg: "#0d7a7a" },
+            };
+            const FALLBACK_TYPE_COLORS = [
+                { bg: "#fff4e0", fg: "#b56a00" },
+                { bg: "#e8f0fe", fg: "#1a56b0" },
+                { bg: "#f3e8ff", fg: "#7c3aed" },
+                { bg: "#e6f7ee", fg: "#1f9254" },
+                { bg: "#ffe8ef", fg: "#c23163" },
+                { bg: "#e3f6f6", fg: "#0d7a7a" },
+            ];
+
+            function hashStr(str) {
+                let h = 0;
+                for (let i = 0; i < str.length; i++)
+                    h = (h * 31 + str.charCodeAt(i)) | 0;
+                return Math.abs(h);
+            }
+
+            function typeBadgeHtml(elementType) {
+                if (!elementType) return "";
+                const key = elementType.trim().toLowerCase();
+                const color =
+                    KNOWN_TYPE_COLORS[key] ||
+                    FALLBACK_TYPE_COLORS[
+                        hashStr(key) % FALLBACK_TYPE_COLORS.length
+                    ];
+                return (
+                    '<span class="type-badge" style="background: ' +
+                    color.bg +
+                    "; color: " +
+                    color.fg +
+                    ';">' +
+                    escapeHtml(elementType) +
+                    "</span>"
+                );
+            }
+
+            function renderBoxDetail(technology, description) {
+                const detail = document.createElement("div");
+                detail.className = "box-detail";
+                detail.innerHTML =
+                    (technology
+                        ? '<div class="tech-row"><span class="tech-label">Tech</span><span class="tech">' +
+                          escapeHtml(technology) +
+                          "</span></div>"
+                        : "") +
+                    (description
+                        ? '<div class="desc">' +
+                          escapeHtml(description) +
+                          "</div>"
+                        : "");
+                return detail;
+            }
+
+            const LOCATE_ICON_SVG =
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+                'stroke-linecap="round" stroke-linejoin="round">' +
+                '<circle cx="12" cy="12" r="3"></circle>' +
+                '<path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path>' +
+                "</svg>";
+
+            const DOWN_ARROW_SVG =
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+                'stroke-linecap="round" stroke-linejoin="round">' +
+                '<path d="M12 4v14M6 13l6 6 6-6"></path>' +
+                "</svg>";
+
+            boxesEl.addEventListener("click", (event) => {
+                const btn = event.target.closest(".icon-btn");
+                if (!btn) return;
+                const id = btn.getAttribute("data-id");
+                if (id) {
+                    parent.postMessage(
+                        { pluginMessage: { type: "focus", id } },
+                        "*",
+                    );
+                }
+            });
+
+            function renderRelations() {
+                const filtered = currentRelations.filter(relationMatchesSearch);
+                relationCountEl.textContent =
+                    filtered.length === currentRelations.length
+                        ? currentRelations.length
+                        : filtered.length + "/" + currentRelations.length;
+                relationsEl.innerHTML = "";
+                if (currentRelations.length === 0) {
+                    relationsEl.innerHTML = emptyStateHtml(
+                        EMPTY_ICON_SVG,
+                        "No relations yet",
+                        "No connectors were found between shapes on this page.",
+                    );
+                    hideRelationDetail();
+                    return;
+                }
+                if (filtered.length === 0) {
+                    relationsEl.innerHTML = emptyStateHtml(
+                        EMPTY_ICON_SVG,
+                        "No matches",
+                        "No relations match your search.",
+                    );
+                    hideRelationDetail();
+                    return;
+                }
+                filtered.forEach((r) => {
+                    const sourceBox = findBox(r.source);
+                    const targetBox = findBox(r.target);
+
+                    const card = document.createElement("div");
+                    card.className =
+                        "card relation-card" +
+                        (r.id === selectedRelationId ? " selected" : "");
+                    card.setAttribute("data-relation-id", r.id);
+
+                    const sourceRow = document.createElement("div");
+                    sourceRow.className = "relation-endpoint";
+                    sourceRow.innerHTML =
+                        '<button class="icon-btn" data-id="' +
+                        escapeHtml(r.source) +
+                        '" title="Go to this element on canvas">' +
+                        LOCATE_ICON_SVG +
+                        "</button>" +
+                        '<span class="name">' +
+                        escapeHtml(r.sourceName) +
+                        "</span>" +
+                        fallbackWarningHtml(
+                            sourceBox &&
+                                sourceBox.labelSource === "node-name-fallback",
+                        ) +
+                        typeBadgeHtml(sourceBox && sourceBox.elementType);
+
+                    const connector = document.createElement("div");
+                    connector.className = "relation-connector";
+                    const labelPart = r.label
+                        ? escapeHtml(r.label)
+                        : r.technology
+                          ? ""
+                          : "(no label)";
+                    const techPart = r.technology
+                        ? '<span class="relation-tech">' +
+                          escapeHtml(r.technology) +
+                          "</span>"
+                        : "";
+                    connector.innerHTML =
+                        DOWN_ARROW_SVG +
+                        (labelPart
+                            ? '<span class="relation-label">' +
+                              labelPart +
+                              "</span>"
+                            : "") +
+                        techPart;
+
+                    const targetRow = document.createElement("div");
+                    targetRow.className = "relation-endpoint";
+                    targetRow.innerHTML =
+                        '<button class="icon-btn" data-id="' +
+                        escapeHtml(r.target) +
+                        '" title="Go to this element on canvas">' +
+                        LOCATE_ICON_SVG +
+                        "</button>" +
+                        '<span class="name">' +
+                        escapeHtml(r.targetName) +
+                        "</span>" +
+                        fallbackWarningHtml(
+                            targetBox &&
+                                targetBox.labelSource === "node-name-fallback",
+                        ) +
+                        typeBadgeHtml(targetBox && targetBox.elementType);
+
+                    const locateBtn = document.createElement("button");
+                    locateBtn.className = "icon-btn locate-corner";
+                    locateBtn.setAttribute("data-id", r.id);
+                    locateBtn.title = "Go to connector on canvas";
+                    locateBtn.innerHTML = LOCATE_ICON_SVG;
+
+                    card.appendChild(sourceRow);
+                    card.appendChild(connector);
+                    card.appendChild(targetRow);
+                    card.appendChild(locateBtn);
+                    relationsEl.appendChild(card);
+                });
+
+                if (
+                    selectedRelationId &&
+                    filtered.some((r) => r.id === selectedRelationId)
+                ) {
+                    renderRelationDetail(selectedRelationId);
+                } else {
+                    hideRelationDetail();
+                }
+            }
+
+            function findBox(id) {
+                return currentBoxes.find((b) => b.id === id) || null;
+            }
+
+            function renderEndpointCard(role, nodeId, fallbackName) {
+                const box = findBox(nodeId);
+                const name = box ? box.name : fallbackName;
+                const isFallback =
+                    box && box.labelSource === "node-name-fallback";
+                const card = document.createElement("div");
+                card.className = "endpoint-card";
+
+                const nameRow = document.createElement("div");
+                nameRow.className = "endpoint-name-row";
+                nameRow.innerHTML =
+                    '<button class="icon-btn" data-id="' +
+                    escapeHtml(nodeId) +
+                    '" title="Go to element on canvas">' +
+                    LOCATE_ICON_SVG +
+                    "</button>" +
+                    '<span class="name">' +
+                    escapeHtml(name) +
+                    "</span>" +
+                    (box ? fallbackWarningHtml(isFallback) : "") +
+                    (box ? typeBadgeHtml(box.elementType) : "");
+
+                const roleEl = document.createElement("div");
+                roleEl.className = "endpoint-role";
+                roleEl.textContent = role;
+
+                const body = document.createElement("div");
+                body.className = "endpoint-body";
+                body.appendChild(nameRow);
+                if (box && (box.technology || box.description)) {
+                    body.appendChild(
+                        renderBoxDetail(box.technology, box.description),
+                    );
+                }
+
+                card.appendChild(roleEl);
+                card.appendChild(body);
+                return card;
+            }
+
+            function renderRelationDetail(relationId) {
+                const relation = currentRelations.find(
+                    (r) => r.id === relationId,
+                );
+                if (!relation) {
+                    hideRelationDetail();
+                    return;
+                }
+                relationDetailEl.innerHTML = "";
+
+                const header = document.createElement("div");
+                header.className = "relation-detail-header";
+                const detailLabelText = relation.label
+                    ? escapeHtml(relation.label) +
+                      (relation.technology
+                          ? ' <span class="relation-tech">' +
+                            escapeHtml(relation.technology) +
+                            "</span>"
+                          : "")
+                    : relation.technology
+                      ? '<span class="relation-tech">' +
+                        escapeHtml(relation.technology) +
+                        "</span>"
+                      : "(no label)";
+                header.innerHTML =
+                    '<span class="label-text">' +
+                    detailLabelText +
+                    "</span>" +
+                    '<button class="relation-detail-close" title="Close">&times;</button>';
+                relationDetailEl.appendChild(header);
+                header.querySelector(".relation-detail-close").onclick = () => {
+                    selectedRelationId = null;
+                    hideRelationDetail();
+                    relationsEl
+                        .querySelectorAll(".relation-card.selected")
+                        .forEach((el) => el.classList.remove("selected"));
+                };
+
+                relationDetailEl.appendChild(
+                    renderEndpointCard(
+                        "Start",
+                        relation.source,
+                        relation.sourceName,
+                    ),
+                );
+                relationDetailEl.appendChild(
+                    renderEndpointCard(
+                        "End",
+                        relation.target,
+                        relation.targetName,
+                    ),
+                );
+
+                const row = relationsEl.querySelector(
+                    '.relation-card[data-relation-id="' + relationId + '"]',
+                );
+                if (row) {
+                    row.insertAdjacentElement("afterend", relationDetailEl);
+                }
+
+                relationDetailEl.classList.remove("hidden");
+            }
+
+            function hideRelationDetail() {
+                relationDetailEl.classList.add("hidden");
+                relationDetailEl.innerHTML = "";
+            }
+
+            relationsEl.addEventListener("click", (event) => {
+                const focusBtn = event.target.closest(".icon-btn");
+                if (focusBtn) {
+                    const id = focusBtn.getAttribute("data-id");
+                    if (id) {
+                        parent.postMessage(
+                            { pluginMessage: { type: "focus", id } },
+                            "*",
+                        );
+                    }
+                }
+                const row = event.target.closest(".relation-card");
+                if (!row) return;
+                const relationId = row.getAttribute("data-relation-id");
+                selectedRelationId = focusBtn
+                    ? relationId
+                    : selectedRelationId === relationId
+                      ? null
+                      : relationId;
+                relationsEl.querySelectorAll(".relation-card").forEach((el) => {
+                    el.classList.toggle(
+                        "selected",
+                        el.getAttribute("data-relation-id") ===
+                            selectedRelationId,
+                    );
+                });
+                if (selectedRelationId) {
+                    renderRelationDetail(selectedRelationId);
+                } else {
+                    hideRelationDetail();
+                }
+            });
+
+            relationDetailEl.addEventListener("click", (event) => {
+                const btn = event.target.closest(".icon-btn");
+                if (!btn) return;
+                const id = btn.getAttribute("data-id");
+                if (id) {
+                    parent.postMessage(
+                        { pluginMessage: { type: "focus", id } },
+                        "*",
+                    );
+                }
+            });
+
+            function escapeHtml(str) {
+                return String(str).replace(
+                    /[&<>"']/g,
+                    (c) =>
+                        ({
+                            "&": "&amp;",
+                            "<": "&lt;",
+                            ">": "&gt;",
+                            '"': "&quot;",
+                            "'": "&#39;",
+                        })[c],
+                );
+            }
+
+            function slugify(name, used) {
+                let base = name
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, "_")
+                    .replace(/^_+|_+$/g, "");
+                if (!base) base = "node";
+                if (/^[0-9]/.test(base)) base = "n_" + base;
+                let id = base;
+                let i = 1;
+                while (used.has(id)) {
+                    id = base + "_" + i++;
+                }
+                used.add(id);
+                return id;
+            }
+
+            function esc(str) {
+                return String(str || "").replace(/"/g, '\\"');
+            }
+
+            function buildIdMap(boxes) {
+                const used = new Set();
+                const idMap = new Map();
+                boxes.forEach((b) => idMap.set(b.id, slugify(b.name, used)));
+                return idMap;
+            }
+
+            function toMermaidC4(boxes, relations) {
+                const idMap = buildIdMap(boxes);
+
+                const lines = ["C4Container", ""];
+                boxes.forEach((b) => {
+                    const id = idMap.get(b.id);
+                    const args = ['"' + esc(b.name) + '"'];
+                    if (b.description) {
+                        args.push(
+                            '"' + esc(b.technology) + '"',
+                            '"' + esc(b.description) + '"',
+                        );
+                    } else if (b.technology) {
+                        args.push('"' + esc(b.technology) + '"');
+                    }
+                    lines.push(
+                        "Container(" + id + ", " + args.join(", ") + ")",
+                    );
+                });
+                lines.push("");
+                relations.forEach((r) => {
+                    const s = idMap.get(r.source);
+                    const t = idMap.get(r.target);
+                    if (!s || !t) return;
+                    const label = esc(r.label);
+                    const tech = r.technology ? esc(r.technology) : "";
+                    if (tech) {
+                        lines.push(
+                            "Rel(" +
+                                s +
+                                ", " +
+                                t +
+                                ', "' +
+                                label +
+                                '", "' +
+                                tech +
+                                '")',
+                        );
+                    } else {
+                        lines.push(
+                            "Rel(" + s + ", " + t + ', "' + label + '")',
+                        );
+                    }
+                });
+                return lines.join("\n");
+            }
+
+            const LIKEC4_KNOWN_KINDS = {
+                person: "person",
+                "software system": "softwareSystem",
+                "external system": "externalSystem",
+                container: "container",
+                component: "component",
+                database: "database",
+            };
+
+            // Turns an arbitrary element-type string (e.g. "Message Queue") into a
+            // valid LikeC4 kind identifier ("messageQueue").
+            function toCamelIdentifier(raw, fallback) {
+                const words = raw
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, " ")
+                    .trim()
+                    .split(/\s+/)
+                    .filter(Boolean);
+                if (words.length === 0) return fallback;
+                return (
+                    words[0] +
+                    words
+                        .slice(1)
+                        .map((w) => w[0].toUpperCase() + w.slice(1))
+                        .join("")
+                );
+            }
+
+            function likeC4KindFor(box) {
+                const raw = (box.elementType || "").trim().toLowerCase();
+                if (!raw) return "component";
+                return (
+                    LIKEC4_KNOWN_KINDS[raw] ||
+                    toCamelIdentifier(raw, "component")
+                );
+            }
+
+            function toLikeC4Dsl(boxes, relations) {
+                const idMap = buildIdMap(boxes);
+                const kindFor = new Map(
+                    boxes.map((b) => [b.id, likeC4KindFor(b)]),
+                );
+                const kindsUsed = Array.from(new Set(kindFor.values())).sort();
+
+                const lines = ["specification {"];
+                kindsUsed.forEach((k) => lines.push("  element " + k));
+                lines.push("}", "", "model {");
+
+                boxes.forEach((b) => {
+                    const id = idMap.get(b.id);
+                    const kind = kindFor.get(b.id);
+                    const hasBody = Boolean(b.technology || b.description);
+                    if (!hasBody) {
+                        lines.push(
+                            "  " + kind + " " + id + ' "' + esc(b.name) + '"',
+                        );
+                        return;
+                    }
+                    lines.push(
+                        "  " + kind + " " + id + ' "' + esc(b.name) + '" {',
+                    );
+                    if (b.technology)
+                        lines.push(
+                            '    technology "' + esc(b.technology) + '"',
+                        );
+                    if (b.description)
+                        lines.push(
+                            '    description "' + esc(b.description) + '"',
+                        );
+                    lines.push("  }");
+                });
+
+                lines.push("");
+                relations.forEach((r) => {
+                    const s = idMap.get(r.source);
+                    const t = idMap.get(r.target);
+                    if (!s || !t) return;
+                    if (r.technology) {
+                        const relLabel = r.label
+                            ? ' "' + esc(r.label) + '"'
+                            : "";
+                        lines.push("  " + s + " -> " + t + relLabel + " {");
+                        lines.push(
+                            '    technology "' + esc(r.technology) + '"',
+                        );
+                        lines.push("  }");
+                    } else {
+                        const relLabel = r.label
+                            ? ' "' + esc(r.label) + '"'
+                            : "";
+                        lines.push("  " + s + " -> " + t + relLabel);
+                    }
+                });
+
+                lines.push(
+                    "}",
+                    "",
+                    "views {",
+                    "  view index {",
+                    "    include *",
+                    "  }",
+                    "}",
+                );
+
+                return lines.join("\n");
+            }
+
+            window.onmessage = (event) => {
+                const msg = event.data.pluginMessage;
+                if (!msg) return;
+                if (msg.type === "relations") {
+                    currentBoxes = msg.boxes || [];
+                    currentRelations = msg.relations || [];
+                    if (msg.focusRelationId) {
+                        selectedRelationId = msg.focusRelationId;
+                        showTab("relations");
+                    }
+                    renderBoxes();
+                    renderRelations();
+                    if (msg.focusRelationId) {
+                        const card = relationsEl.querySelector(
+                            '.relation-card[data-relation-id="' +
+                                msg.focusRelationId +
+                                '"]',
+                        );
+                        if (card)
+                            card.scrollIntoView({
+                                behavior: "smooth",
+                                block: "center",
+                            });
+                    }
+                    if (!tabViews.export.classList.contains("hidden")) {
+                        renderExportOutput();
+                    }
+                }
+            };
+
+            // Tell the plugin we're ready to receive messages. figma.showUI() loads
+            // this iframe asynchronously, so if the plugin fires its initial extract
+            // right after showUI() (as it used to), the message can arrive before
+            // window.onmessage above is attached and gets silently dropped - leaving
+            // the panel empty until the user manually clicks Refresh. Sending this
+            // ready ping (after the listener is attached) and having the plugin wait
+            // for it removes that race.
+            parent.postMessage({ pluginMessage: { type: "ui-ready" } }, "*");
+        </script>
+    </body>
 </html>

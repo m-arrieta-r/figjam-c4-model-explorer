@@ -17,6 +17,7 @@ interface Relation {
   sourceName: string;
   targetName: string;
   label: string;
+  technology: string | null;
 }
 
 interface ExtractResult {
@@ -73,13 +74,19 @@ function collectNamedTexts(node: BaseNode): NamedText[] {
 }
 
 function stripBracket(text: string): string {
-  return text.replace(/^\[\s*/, "").replace(/\s*\]$/, "").trim();
+  return text
+    .replace(/^\[\s*/, "")
+    .replace(/\s*\]$/, "")
+    .trim();
 }
 
 // Splits a C4 annotation like "Container: Oracle APEX" into its element type
 // ("Container") and concrete technology ("Oracle APEX"). Annotations with no
 // colon (e.g. "Person", "Software System") are the element type alone.
-function splitTechAnnotation(raw: string | null): { elementType: string | null; technology: string | null } {
+function splitTechAnnotation(raw: string | null): {
+  elementType: string | null;
+  technology: string | null;
+} {
   if (!raw) return { elementType: null, technology: null };
   const idx = raw.indexOf(":");
   if (idx === -1) return { elementType: raw.trim() || null, technology: null };
@@ -118,7 +125,12 @@ interface FlatDetails {
 function extractFlatDetails(node: BaseNode): FlatDetails {
   const texts = collectNamedTexts(node).map((t) => t.text);
   if (texts.length === 0) {
-    return { name: null, elementType: null, technology: null, description: null };
+    return {
+      name: null,
+      elementType: null,
+      technology: null,
+      description: null,
+    };
   }
 
   const bracketRun = findBracketRun(texts);
@@ -137,7 +149,8 @@ function extractFlatDetails(node: BaseNode): FlatDetails {
 
   const meaningful = remaining.filter((t) => isMeaningfulText(t));
   const name = meaningful.length > 0 ? meaningful[0] : null;
-  const description = meaningful.length > 1 ? meaningful.slice(1).join(" ").trim() : null;
+  const description =
+    meaningful.length > 1 ? meaningful.slice(1).join(" ").trim() : null;
 
   return { name, elementType, technology, description };
 }
@@ -146,7 +159,13 @@ function extractFlatDetails(node: BaseNode): FlatDetails {
 // System]" or "[Container: Java, Spring]") and description of a C4 box.
 function extractBoxDetails(node: BaseNode | null): BoxDetails {
   if (!node) {
-    return { name: "Unknown", nameSource: "missing-node", elementType: null, technology: null, description: null };
+    return {
+      name: "Unknown",
+      nameSource: "missing-node",
+      elementType: null,
+      technology: null,
+      description: null,
+    };
   }
 
   // Simple text-bearing nodes (shape-with-text, sticky, plain text) - use directly.
@@ -187,7 +206,9 @@ function extractBoxDetails(node: BaseNode | null): BoxDetails {
   if (namedTitle) {
     const namedTech = namedTexts.find((t) => TECH_NAME_RE.test(t.nodeName));
     const namedDesc = namedTexts.find((t) => DESC_NAME_RE.test(t.nodeName));
-    const { elementType, technology } = splitTechAnnotation(namedTech ? stripBracket(namedTech.text) : null);
+    const { elementType, technology } = splitTechAnnotation(
+      namedTech ? stripBracket(namedTech.text) : null,
+    );
     return {
       name: namedTitle.text,
       nameSource: "named-text-node",
@@ -221,20 +242,31 @@ function extractBoxDetails(node: BaseNode | null): BoxDetails {
 }
 
 function extractRelations(): ExtractResult {
-  const connectors = figma.currentPage.findAllWithCriteria({ types: ["CONNECTOR"] });
+  const connectors = figma.currentPage.findAllWithCriteria({
+    types: ["CONNECTOR"],
+  });
   const boxMap = new Map<string, Box>();
   const relations: Relation[] = [];
   let skipped = 0;
 
-  console.log(`[extract-c4] found ${connectors.length} connector(s) on page "${figma.currentPage.name}"`);
+  console.log(
+    `[extract-c4] found ${connectors.length} connector(s) on page "${figma.currentPage.name}"`,
+  );
 
   for (const connector of connectors) {
     const start = connector.connectorStart;
     const end = connector.connectorEnd;
 
-    if (!start || !end || !("endpointNodeId" in start) || !("endpointNodeId" in end)) {
+    if (
+      !start ||
+      !end ||
+      !("endpointNodeId" in start) ||
+      !("endpointNodeId" in end)
+    ) {
       skipped++;
-      console.log(`[extract-c4] skipping connector ${connector.id}: not attached to a node on both ends`);
+      console.log(
+        `[extract-c4] skipping connector ${connector.id}: not attached to a node on both ends`,
+      );
       continue;
     }
 
@@ -248,7 +280,7 @@ function extractRelations(): ExtractResult {
     console.log(
       `[extract-c4] connector ${connector.id}: ` +
         `${sourceNode?.type ?? "null"}#${sourceId} "${sourceDetails.name}" (${sourceDetails.nameSource}) -> ` +
-        `${targetNode?.type ?? "null"}#${targetId} "${targetDetails.name}" (${targetDetails.nameSource})`
+        `${targetNode?.type ?? "null"}#${targetId} "${targetDetails.name}" (${targetDetails.nameSource})`,
     );
 
     if (!boxMap.has(sourceId)) {
@@ -274,7 +306,20 @@ function extractRelations(): ExtractResult {
       });
     }
 
-    const label = connector.text && connector.text.characters ? connector.text.characters.trim() : "";
+    const rawLabel =
+      connector.text && connector.text.characters
+        ? connector.text.characters.trim()
+        : "";
+    // Extract [technology] bracket from anywhere in the label (handles multiline too)
+    const bracketMatch = rawLabel.match(/\[([^\]]+)\]/);
+    let label: string;
+    let relationTechnology: string | null = null;
+    if (bracketMatch) {
+      relationTechnology = bracketMatch[1].trim() || null;
+      label = rawLabel.replace(bracketMatch[0], "").replace(/\s+/g, " ").trim();
+    } else {
+      label = rawLabel;
+    }
 
     relations.push({
       id: connector.id,
@@ -283,21 +328,29 @@ function extractRelations(): ExtractResult {
       sourceName: sourceDetails.name,
       targetName: targetDetails.name,
       label,
+      technology: relationTechnology,
     });
 
     // Lets the user select this connector on the canvas and relaunch the
     // plugin straight into that relation's detail panel (see figma.command
     // handling in runExtraction/figma.ui.onmessage below).
-    connector.setRelaunchData({ "view-relation": "View this relation's detail in the C4 panel" });
+    connector.setRelaunchData({
+      "view-relation": "View this relation's detail in the C4 panel",
+    });
   }
 
   const boxes: Box[] = Array.from(boxMap.values());
-  console.log(`[extract-c4] resolved ${boxes.length} box(es), skipped ${skipped} connector(s)`, boxes);
+  console.log(
+    `[extract-c4] resolved ${boxes.length} box(es), skipped ${skipped} connector(s)`,
+    boxes,
+  );
   return { boxes, relations, skipped };
 }
 
 function getSelectedConnectorId(): string | null {
-  const connector = figma.currentPage.selection.find((n) => n.type === "CONNECTOR");
+  const connector = figma.currentPage.selection.find(
+    (n) => n.type === "CONNECTOR",
+  );
   return connector ? connector.id : null;
 }
 
@@ -332,7 +385,9 @@ interface NodeSummary {
   connectorEnd?: EndpointSummary;
 }
 
-function summarizeEndpoint(endpoint: ConnectorEndpoint | null): EndpointSummary | undefined {
+function summarizeEndpoint(
+  endpoint: ConnectorEndpoint | null,
+): EndpointSummary | undefined {
   if (!endpoint) return undefined;
 
   const summary: EndpointSummary = {};
@@ -340,7 +395,9 @@ function summarizeEndpoint(endpoint: ConnectorEndpoint | null): EndpointSummary 
   if ("endpointNodeId" in endpoint) {
     summary.endpointNodeId = endpoint.endpointNodeId;
     const resolved = figma.getNodeById(endpoint.endpointNodeId);
-    summary.resolvedNode = resolved ? { id: resolved.id, type: resolved.type, name: resolved.name } : null;
+    summary.resolvedNode = resolved
+      ? { id: resolved.id, type: resolved.type, name: resolved.name }
+      : null;
   }
   if ("magnet" in endpoint) {
     summary.magnet = endpoint.magnet;
@@ -381,7 +438,9 @@ function summarizeNode(node: BaseNode, depth = 4): NodeSummary {
     const children = (node as ChildrenMixin).children;
     summary.childCount = children.length;
     if (depth > 0) {
-      summary.children = children.map((child) => summarizeNode(child, depth - 1));
+      summary.children = children.map((child) =>
+        summarizeNode(child, depth - 1),
+      );
     }
   }
 
@@ -394,21 +453,29 @@ function focusNode(id: string) {
   if (node) {
     console.log(
       `[extract-c4] focusNode(${id}) tree (copy this to debug the label extraction):\n` +
-        JSON.stringify(summarizeNode(node), null, 2)
+        JSON.stringify(summarizeNode(node), null, 2),
     );
   } else {
     console.log(`[extract-c4] focusNode(${id}): getNodeById returned null`);
   }
 
   if (!node) {
-    console.warn(`[extract-c4] focusNode(${id}): getNodeById returned null (node was likely deleted)`);
-    figma.notify("No se pudo encontrar ese elemento (puede que haya sido borrado).");
+    console.warn(
+      `[extract-c4] focusNode(${id}): getNodeById returned null (node was likely deleted)`,
+    );
+    figma.notify(
+      "No se pudo encontrar ese elemento (puede que haya sido borrado).",
+    );
     return;
   }
 
   if (!("visible" in node)) {
-    console.warn(`[extract-c4] focusNode(${id}): node type "${node.type}" is not a SceneNode, cannot select/zoom`);
-    figma.notify("Ese elemento no se puede seleccionar (tipo: " + node.type + ").");
+    console.warn(
+      `[extract-c4] focusNode(${id}): node type "${node.type}" is not a SceneNode, cannot select/zoom`,
+    );
+    figma.notify(
+      "Ese elemento no se puede seleccionar (tipo: " + node.type + ").",
+    );
     return;
   }
 
@@ -426,21 +493,27 @@ function focusNode(id: string) {
   });
 
   if (removed) {
-    console.warn(`[extract-c4] focusNode(${id}): node.removed === true, it no longer exists on the canvas`);
+    console.warn(
+      `[extract-c4] focusNode(${id}): node.removed === true, it no longer exists on the canvas`,
+    );
     figma.notify("Ese elemento fue eliminado del lienzo.");
     return;
   }
 
   try {
     if (page && page.id !== figma.currentPage.id) {
-      console.log(`[extract-c4] focusNode(${id}): node lives on a different page ("${page.name}"), switching`);
+      console.log(
+        `[extract-c4] focusNode(${id}): node lives on a different page ("${page.name}"), switching`,
+      );
       figma.currentPage = page;
     }
     figma.currentPage.selection = [sceneNode];
     figma.viewport.scrollAndZoomIntoView([sceneNode]);
   } catch (err) {
     console.error(`[extract-c4] focusNode(${id}): failed to select/zoom`, err);
-    figma.notify("No se pudo enfocar ese elemento. Revisa la consola para más detalle.");
+    figma.notify(
+      "No se pudo enfocar ese elemento. Revisa la consola para más detalle.",
+    );
   }
 }
 
@@ -455,7 +528,8 @@ function findPage(node: BaseNode): PageNode | null {
 
 figma.ui.onmessage = (msg: { type: string; id?: string }) => {
   if (msg.type === "ui-ready") {
-    const focusRelationId = figma.command === "view-relation" ? getSelectedConnectorId() : null;
+    const focusRelationId =
+      figma.command === "view-relation" ? getSelectedConnectorId() : null;
     runExtraction(focusRelationId);
   }
   if (msg.type === "extract") {
