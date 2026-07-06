@@ -4,7 +4,7 @@
   "api": "1.0.0",
   "editorType": ["figjam"],
   "main": "dist/code.js",
-  "ui": "ui.html",
+  "ui": "dist/ui.html",
   "relaunchButtons": [
     { "command": "view-relation", "name": "View C4 relation" }
   ],

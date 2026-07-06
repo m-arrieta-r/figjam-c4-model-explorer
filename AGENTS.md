@@ -17,10 +17,22 @@ Two runtimes talking over `postMessage`, standard Figma plugin split:
 - `src/code.ts` — the plugin sandbox. Has the Figma document API
   (`figma.*`), no DOM. Compiled with esbuild to `dist/code.js` (gitignored),
   which is what `manifest.json`'s `"main"` points to.
-- `ui.html` — the plugin UI, rendered in a sandboxed iframe. Plain HTML/CSS/JS,
-  **not bundled** — `manifest.json`'s `"ui"` field points at it directly, so
-  editing `ui.html` takes effect on the next plugin run with **no build step**.
-  Only edits to `src/code.ts` require `npm run build`.
+- `src/ui/` — the plugin UI, rendered in a sandboxed iframe. Plain HTML/CSS/JS,
+  split into `index.html` (markup shell with `/*BUILD:INLINE_CSS*/` /
+  `/*BUILD:INLINE_JS*/` placeholders), `styles.css`, `export-shared.js`
+  (`esc`/`slugify`/`buildIdMap`, shared by both export formats),
+  `export-mermaid.js`, `export-likec4.js`, and `app.js` (state, DOM refs,
+  tabs, search, rendering, `postMessage` wiring — everything not related to
+  export). `scripts/build-ui.js` (dependency-free, just `fs`/`path`) inlines
+  `styles.css` and concatenates the JS files — `export-shared.js` first,
+  since the others call its functions — into those placeholders, producing
+  a single `dist/ui.html`, which is what `manifest.json`'s `"ui"` field
+  points to. Figma loads the `"ui"` file as one iframe document with no way
+  to fetch sibling files, so it **must** ship as one self-contained file —
+  the split only exists in `src/ui/`, never in what's loaded.
+  Editing anything under `src/ui/` requires `npm run build` (or
+  `npm run watch`, which rebuilds both `dist/code.js` and `dist/ui.html` on
+  change) before reloading the plugin in Figma.
 
 Message protocol between the two (informal, not typed across the boundary):
 
@@ -34,12 +46,12 @@ Message protocol between the two (informal, not typed across the boundary):
 
 ### Startup race — do not reintroduce
 
-`figma.showUI()` loads the `ui.html` iframe **asynchronously**. Early versions
+`figma.showUI()` loads the UI iframe **asynchronously**. Early versions
 of this plugin called `runExtraction()` unconditionally right after
 `figma.showUI(...)`, which raced the iframe's own script startup: if the
 `relations` message arrived before `window.onmessage` was attached in
-`ui.html`, it was silently dropped and the panel stayed empty until the user
-manually clicked Refresh. Fixed by a ready handshake — `ui.html` sends
+the UI, it was silently dropped and the panel stayed empty until the user
+manually clicked Refresh. Fixed by a ready handshake — `app.js` sends
 `{ type: 'ui-ready' }` as the *last* line of its script (after
 `window.onmessage` is assigned), and `code.ts` only calls `runExtraction()`
 in response to that message (or to `extract`), never at top-level script
@@ -89,9 +101,12 @@ the plugin console (Figma → Plugins → Development → Open Console). That JS
 is the fastest way to see why a shape isn't parsing the way you'd expect —
 ask for it before guessing at a fix.
 
-## UI (`ui.html`)
+## UI (`src/ui/`)
 
-Single file, inline `<style>` + `<script>`, no framework, no build step.
+No framework. `app.js` holds all rendering/state logic;
+`export-mermaid.js`/`export-likec4.js` hold the two export formats;
+`export-shared.js` holds what both of those need. See "Architecture" above
+for how these get combined into `dist/ui.html` at build time.
 
 - Sticky header (title, tabs with live counts, search bar) so it stays
   visible while scrolling long lists (some boards have 200+ relations).
@@ -112,9 +127,10 @@ Single file, inline `<style>` + `<script>`, no framework, no build step.
 - Search (`matchesSearch`) is accent-insensitive (NFD-normalize + strip
   combining marks) and matches name/description/technology/elementType
   across both boxes and (via `findBox`) the endpoints of each relation.
-- Export tab toggles between `toMermaidC4()` and `toLikeC4Dsl()`, both built
-  from the same `buildIdMap()`/`slugify()` (stable, collision-free per-box
-  identifiers reused across both formats).
+- Export tab toggles between `toMermaidC4()` (`export-mermaid.js`) and
+  `toLikeC4Dsl()` (`export-likec4.js`), both built from the same
+  `buildIdMap()`/`slugify()` in `export-shared.js` (stable, collision-free
+  per-box identifiers reused across both formats).
 
 ## Relaunch button (canvas → plugin)
 
@@ -133,7 +149,7 @@ node is selected. This plugin uses it:
 - On startup, if `figma.command === "view-relation"` (i.e. launched via that
   button), `getSelectedConnectorId()` reads the connector from
   `figma.currentPage.selection` and that id is threaded through as
-  `focusRelationId` in the `relations` message, which `ui.html` uses to
+  `focusRelationId` in the `relations` message, which `app.js` uses to
   switch to the Relaciones tab, select the right card, scroll it into view,
   and open its detail panel automatically.
 
@@ -144,20 +160,28 @@ node is selected. This plugin uses it:
   explicitly asked for, not an oversight to "fix."
 - No test framework is set up. Verification during development has been done
   ad hoc with headless `jsdom` scripts in `/tmp` (install `jsdom` with
-  `npm install --no-save jsdom` in a scratch dir, load `ui.html` with
-  `runScripts: 'dangerously'`, simulate `postMessage`/clicks, assert on the
-  resulting DOM) since `ui.html`'s script isn't covered by `tsc`. Clean up
-  the scratch dir after. There's no persistent test suite to run — don't go
-  looking for one.
+  `npm install --no-save jsdom` in a scratch dir, run `npm run build` first,
+  load the built `dist/ui.html` with `runScripts: 'dangerously'`, simulate
+  `postMessage`/clicks, assert on the resulting DOM) since the UI's script
+  isn't covered by `tsc`. Note: in jsdom the top-level window's `parent` is
+  the window itself, so overriding `window.parent.postMessage` in
+  `beforeParse` also clobbers `window.postMessage` — patch
+  `window.postMessage` directly (after load, wrapping the original) if you
+  need to observe outgoing messages while still driving the UI with
+  incoming ones. Clean up the scratch dir after. There's no persistent test
+  suite to run — don't go looking for one.
 
 ## Commands
 
 ```
-npm run build      # esbuild src/code.ts -> dist/code.js
-npm run watch       # same, with --watch
-npm run typecheck   # tsc --noEmit (src/ only; ui.html's script is untyped)
+npm run build       # esbuild src/code.ts -> dist/code.js, then build-ui.js -> dist/ui.html
+npm run build:code  # just the esbuild step
+npm run build:ui    # just the UI inline/concat step (scripts/build-ui.js)
+npm run watch       # both of the above, in --watch mode, in parallel
+npm run typecheck   # tsc --noEmit (src/code.ts only; src/ui/*.js is untyped)
 ```
 
-Always run `typecheck` (and `build` if `dist/code.js` will be loaded) after
-touching `src/code.ts`. `ui.html` changes need no build, just a plugin
-reload in Figma.
+Always run `typecheck` (and `build` if `dist/` will be loaded) after
+touching `src/code.ts`. Changes under `src/ui/` need `npm run build:ui` (or
+`npm run build`) before reloading the plugin in Figma — there is no
+build-free path anymore now that the UI is split across multiple files.

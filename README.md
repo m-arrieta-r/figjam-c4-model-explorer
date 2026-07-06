@@ -39,8 +39,10 @@ npm install
 npm run build
 ```
 
-Esto genera `dist/code.js` a partir de `src/code.ts`. El archivo `ui.html`
-**no** requiere build — Figma lo carga directamente tal cual está en disco.
+Esto genera `dist/code.js` a partir de `src/code.ts` y `dist/ui.html` a
+partir de los archivos en `src/ui/` (HTML/CSS/JS separados en varios
+archivos). Figma carga `dist/ui.html` directamente; ambos pasos de build son
+necesarios porque Figma solo admite un único archivo de UI.
 
 ## Cargar el plugin en Figma
 
@@ -50,9 +52,9 @@ Esto genera `dist/code.js` a partir de `src/code.ts`. El archivo `ui.html`
 3. Abre un archivo de FigJam y corre el plugin desde **Plugins →
    Development → Extract C4 from FigJam**.
 
-Si editas `src/code.ts`, corre `npm run build` y vuelve a abrir el plugin
-(ciérralo y ábrelo de nuevo) para que tome el `dist/code.js` nuevo. Si solo
-editas `ui.html`, basta con volver a abrir el plugin.
+Si editas `src/code.ts` o cualquier archivo bajo `src/ui/`, corre
+`npm run build` y vuelve a abrir el plugin (ciérralo y ábrelo de nuevo) para
+que tome los archivos nuevos en `dist/`.
 
 ## Cómo estructurar los shapes en FigJam para mejores resultados
 
@@ -87,7 +89,9 @@ JSON, útil para reportar o depurar el caso.
 ## Scripts
 
 ```bash
-npm run build       # compila src/code.ts -> dist/code.js
-npm run watch        # igual, en modo watch
-npm run typecheck    # chequeo de tipos (tsc --noEmit)
+npm run build        # compila src/code.ts -> dist/code.js y arma src/ui/* -> dist/ui.html
+npm run build:code    # solo el paso de esbuild
+npm run build:ui      # solo el paso que arma dist/ui.html
+npm run watch         # ambos anteriores, en modo watch
+npm run typecheck     # chequeo de tipos (tsc --noEmit)
 ```
