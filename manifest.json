@@ -5,6 +5,9 @@
   "editorType": ["figjam"],
   "main": "dist/code.js",
   "ui": "ui.html",
+  "relaunchButtons": [
+    { "command": "view-relation", "name": "Ver relación C4" }
+  ],
   "networkAccess": {
     "allowedDomains": ["none"]
   }

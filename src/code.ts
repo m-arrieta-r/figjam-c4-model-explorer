@@ -284,6 +284,11 @@ function extractRelations(): ExtractResult {
       targetName: targetDetails.name,
       label,
     });
+
+    // Lets the user select this connector on the canvas and relaunch the
+    // plugin straight into that relation's detail panel (see figma.command
+    // handling in runExtraction/figma.ui.onmessage below).
+    connector.setRelaunchData({ "view-relation": "Ver el detalle de esta relación en el panel C4" });
   }
 
   const boxes: Box[] = Array.from(boxMap.values());
@@ -291,9 +296,14 @@ function extractRelations(): ExtractResult {
   return { boxes, relations, skipped };
 }
 
-function runExtraction() {
+function getSelectedConnectorId(): string | null {
+  const connector = figma.currentPage.selection.find((n) => n.type === "CONNECTOR");
+  return connector ? connector.id : null;
+}
+
+function runExtraction(focusRelationId: string | null = null) {
   const result = extractRelations();
-  figma.ui.postMessage({ type: "relations", ...result });
+  figma.ui.postMessage({ type: "relations", ...result, focusRelationId });
 }
 
 interface ResolvedEndpointRef {
@@ -444,6 +454,10 @@ function findPage(node: BaseNode): PageNode | null {
 }
 
 figma.ui.onmessage = (msg: { type: string; id?: string }) => {
+  if (msg.type === "ui-ready") {
+    const focusRelationId = figma.command === "view-relation" ? getSelectedConnectorId() : null;
+    runExtraction(focusRelationId);
+  }
   if (msg.type === "extract") {
     runExtraction();
   }
@@ -454,5 +468,3 @@ figma.ui.onmessage = (msg: { type: string; id?: string }) => {
     figma.closePlugin();
   }
 };
-
-runExtraction();

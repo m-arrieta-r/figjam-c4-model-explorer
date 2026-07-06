@@ -623,6 +623,9 @@
         const sourceRow = document.createElement('div');
         sourceRow.className = 'relation-endpoint';
         sourceRow.innerHTML =
+          '<button class="icon-btn" data-id="' + escapeHtml(r.source) + '" title="Ir a este elemento en el lienzo">' +
+            LOCATE_ICON_SVG +
+          '</button>' +
           '<span class="name">' + escapeHtml(r.sourceName) + '</span>' +
           fallbackWarningHtml(sourceBox && sourceBox.labelSource === 'node-name-fallback') +
           typeBadgeHtml(sourceBox && sourceBox.elementType);
@@ -635,6 +638,9 @@
         const targetRow = document.createElement('div');
         targetRow.className = 'relation-endpoint';
         targetRow.innerHTML =
+          '<button class="icon-btn" data-id="' + escapeHtml(r.target) + '" title="Ir a este elemento en el lienzo">' +
+            LOCATE_ICON_SVG +
+          '</button>' +
           '<span class="name">' + escapeHtml(r.targetName) + '</span>' +
           fallbackWarningHtml(targetBox && targetBox.labelSource === 'node-name-fallback') +
           typeBadgeHtml(targetBox && targetBox.elementType);
@@ -888,13 +894,30 @@
       if (msg.type === 'relations') {
         currentBoxes = msg.boxes || [];
         currentRelations = msg.relations || [];
+        if (msg.focusRelationId) {
+          selectedRelationId = msg.focusRelationId;
+          showTab('relations');
+        }
         renderBoxes();
         renderRelations();
+        if (msg.focusRelationId) {
+          const card = relationsEl.querySelector('.relation-card[data-relation-id="' + msg.focusRelationId + '"]');
+          if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
         if (!tabViews.export.classList.contains('hidden')) {
           renderExportOutput();
         }
       }
     };
+
+    // Tell the plugin we're ready to receive messages. figma.showUI() loads
+    // this iframe asynchronously, so if the plugin fires its initial extract
+    // right after showUI() (as it used to), the message can arrive before
+    // window.onmessage above is attached and gets silently dropped - leaving
+    // the panel empty until the user manually clicks Refresh. Sending this
+    // ready ping (after the listener is attached) and having the plugin wait
+    // for it removes that race.
+    parent.postMessage({ pluginMessage: { type: 'ui-ready' } }, '*');
   </script>
 </body>
 </html>
