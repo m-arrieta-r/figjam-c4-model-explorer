@@ -288,7 +288,7 @@ function extractRelations(): ExtractResult {
     // Lets the user select this connector on the canvas and relaunch the
     // plugin straight into that relation's detail panel (see figma.command
     // handling in runExtraction/figma.ui.onmessage below).
-    connector.setRelaunchData({ "view-relation": "Ver el detalle de esta relación en el panel C4" });
+    connector.setRelaunchData({ "view-relation": "View this relation's detail in the C4 panel" });
   }
 
   const boxes: Box[] = Array.from(boxMap.values());

@@ -38,6 +38,13 @@
     justify-content: space-between;
     margin-bottom: 10px;
   }
+  .title-left { display: flex; align-items: center; gap: 8px; }
+  .app-icon {
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    border-radius: var(--radius-sm);
+  }
   h2 { font-size: 14px; margin: 0; font-weight: 700; }
 
   button {
@@ -129,6 +136,23 @@
     color: var(--text-muted);
     padding: 36px 16px;
     font-size: 12px;
+  }
+  .empty svg {
+    width: 32px;
+    height: 32px;
+    color: var(--text-faint);
+    margin-bottom: 8px;
+  }
+  .empty .empty-title {
+    display: block;
+    color: var(--text);
+    font-weight: 600;
+    font-size: 12.5px;
+    margin-bottom: 4px;
+  }
+  .empty .empty-hint {
+    display: block;
+    color: var(--text-muted);
   }
 
   /* Shared card */
@@ -319,12 +343,22 @@
 <body>
   <div class="sticky-header">
     <div class="title-row">
-      <h2>C4 Relations</h2>
-      <button id="refresh" title="Volver a extraer del lienzo">&#8635; Refresh</button>
+      <div class="title-left">
+        <svg class="app-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="32" height="32" rx="7" fill="#18a0fb"/>
+          <rect x="4" y="5" width="9" height="7" rx="1.5" fill="#fff"/>
+          <rect x="19" y="5" width="9" height="7" rx="1.5" fill="#fff" fill-opacity="0.85"/>
+          <rect x="11.5" y="20" width="9" height="7" rx="1.5" fill="#fff" fill-opacity="0.7"/>
+          <path d="M8.5 12v3.5a2 2 0 0 0 2 2h5m0 0h5a2 2 0 0 0 2-2V12" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M16 17.5V20" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+        <h2>C4 Relations</h2>
+      </div>
+      <button id="refresh" title="Re-extract from canvas">&#8635; Refresh</button>
     </div>
 
     <div class="tabs">
-      <button class="tab-btn active" data-tab="relations">Relaciones <span class="tab-count" id="relation-count">0</span></button>
+      <button class="tab-btn active" data-tab="relations">Relations <span class="tab-count" id="relation-count">0</span></button>
       <button class="tab-btn" data-tab="boxes">Boxes <span class="tab-count" id="box-count">0</span></button>
       <button class="tab-btn" data-tab="export">Export</button>
     </div>
@@ -334,8 +368,8 @@
         <circle cx="11" cy="11" r="7"></circle>
         <path d="M21 21l-4.3-4.3"></path>
       </svg>
-      <input type="text" id="search-input" placeholder="Buscar por nombre, descripción o tecnología..." />
-      <button class="search-clear" id="search-clear" title="Limpiar búsqueda">&times;</button>
+      <input type="text" id="search-input" placeholder="Search by name, description or technology..." />
+      <button class="search-clear" id="search-clear" title="Clear search">&times;</button>
     </div>
   </div>
 
@@ -352,8 +386,8 @@
     <div id="export-view" class="tab-view hidden">
       <div class="export-toolbar">
         <div class="format-toggle">
-          <button class="format-btn active" id="format-mermaid" data-format="mermaid">Mermaid C4</button>
-          <button class="format-btn" id="format-likec4" data-format="likec4">LikeC4 DSL</button>
+          <button class="format-btn active" id="format-mermaid" data-format="mermaid" title="Text diagram syntax you can paste into any Mermaid-compatible tool (e.g. mermaid.live or Markdown docs) to render the C4 diagram.">Mermaid C4</button>
+          <button class="format-btn" id="format-likec4" data-format="likec4" title="Text format for the LikeC4 tool, for teams that keep their C4 model as versioned code.">LikeC4 DSL</button>
         </div>
         <button id="copy" class="primary">Copy to clipboard</button>
       </div>
@@ -484,9 +518,23 @@
 
     function fallbackWarningHtml(isFallback) {
       return isFallback
-        ? '<span class="fallback-warning" title="Nombre tomado del nombre de la capa en Figma (no se detectó texto); conviene revisar el shape.">&#9888;</span>'
+        ? '<span class="fallback-warning" title="Name taken from the Figma layer name (no text was detected); you may want to review this shape.">&#9888;</span>'
         : '';
     }
+
+    function emptyStateHtml(iconSvg, title, hint) {
+      return '<div class="empty">' + iconSvg +
+        '<span class="empty-title">' + title + '</span>' +
+        '<span class="empty-hint">' + hint + '</span>' +
+        '</div>';
+    }
+
+    const EMPTY_ICON_SVG =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
+      'stroke-linecap="round" stroke-linejoin="round">' +
+      '<circle cx="11" cy="11" r="7"></circle>' +
+      '<path d="M21 21l-4.3-4.3"></path>' +
+      '</svg>';
 
     function renderBoxes() {
       const filtered = currentBoxes.filter(boxMatchesSearch);
@@ -494,11 +542,11 @@
         filtered.length === currentBoxes.length ? currentBoxes.length : filtered.length + '/' + currentBoxes.length;
       boxesEl.innerHTML = '';
       if (currentBoxes.length === 0) {
-        boxesEl.innerHTML = '<div class="empty">No boxes resolved yet.</div>';
+        boxesEl.innerHTML = emptyStateHtml(EMPTY_ICON_SVG, 'No boxes yet', 'Run Refresh to extract shapes from the FigJam canvas.');
         return;
       }
       if (filtered.length === 0) {
-        boxesEl.innerHTML = '<div class="empty">Ningún box coincide con la búsqueda.</div>';
+        boxesEl.innerHTML = emptyStateHtml(EMPTY_ICON_SVG, 'No matches', 'No boxes match your search.');
         return;
       }
       filtered.forEach((b) => {
@@ -518,7 +566,7 @@
         const locateBtn = document.createElement('button');
         locateBtn.className = 'icon-btn locate-corner';
         locateBtn.setAttribute('data-id', b.id);
-        locateBtn.title = 'Ir al elemento en el lienzo';
+        locateBtn.title = 'Go to element on canvas';
         locateBtn.innerHTML = LOCATE_ICON_SVG;
         item.appendChild(locateBtn);
 
@@ -603,12 +651,12 @@
           : filtered.length + '/' + currentRelations.length;
       relationsEl.innerHTML = '';
       if (currentRelations.length === 0) {
-        relationsEl.innerHTML = '<div class="empty">No connectors found between shapes on this page.</div>';
+        relationsEl.innerHTML = emptyStateHtml(EMPTY_ICON_SVG, 'No relations yet', 'No connectors were found between shapes on this page.');
         hideRelationDetail();
         return;
       }
       if (filtered.length === 0) {
-        relationsEl.innerHTML = '<div class="empty">Ninguna relación coincide con la búsqueda.</div>';
+        relationsEl.innerHTML = emptyStateHtml(EMPTY_ICON_SVG, 'No matches', 'No relations match your search.');
         hideRelationDetail();
         return;
       }
@@ -623,7 +671,7 @@
         const sourceRow = document.createElement('div');
         sourceRow.className = 'relation-endpoint';
         sourceRow.innerHTML =
-          '<button class="icon-btn" data-id="' + escapeHtml(r.source) + '" title="Ir a este elemento en el lienzo">' +
+          '<button class="icon-btn" data-id="' + escapeHtml(r.source) + '" title="Go to this element on canvas">' +
             LOCATE_ICON_SVG +
           '</button>' +
           '<span class="name">' + escapeHtml(r.sourceName) + '</span>' +
@@ -633,12 +681,12 @@
         const connector = document.createElement('div');
         connector.className = 'relation-connector';
         connector.innerHTML =
-          DOWN_ARROW_SVG + '<span class="relation-label">' + (r.label ? escapeHtml(r.label) : '(sin etiqueta)') + '</span>';
+          DOWN_ARROW_SVG + '<span class="relation-label">' + (r.label ? escapeHtml(r.label) : '(no label)') + '</span>';
 
         const targetRow = document.createElement('div');
         targetRow.className = 'relation-endpoint';
         targetRow.innerHTML =
-          '<button class="icon-btn" data-id="' + escapeHtml(r.target) + '" title="Ir a este elemento en el lienzo">' +
+          '<button class="icon-btn" data-id="' + escapeHtml(r.target) + '" title="Go to this element on canvas">' +
             LOCATE_ICON_SVG +
           '</button>' +
           '<span class="name">' + escapeHtml(r.targetName) + '</span>' +
@@ -648,7 +696,7 @@
         const locateBtn = document.createElement('button');
         locateBtn.className = 'icon-btn locate-corner';
         locateBtn.setAttribute('data-id', r.id);
-        locateBtn.title = 'Ir al conector en el lienzo';
+        locateBtn.title = 'Go to connector on canvas';
         locateBtn.innerHTML = LOCATE_ICON_SVG;
 
         card.appendChild(sourceRow);
@@ -679,7 +727,7 @@
       const nameRow = document.createElement('div');
       nameRow.className = 'endpoint-name-row';
       nameRow.innerHTML =
-        '<button class="icon-btn" data-id="' + escapeHtml(nodeId) + '" title="Ir al elemento en el lienzo">' +
+        '<button class="icon-btn" data-id="' + escapeHtml(nodeId) + '" title="Go to element on canvas">' +
           LOCATE_ICON_SVG +
         '</button>' +
         '<span class="name">' + escapeHtml(name) + '</span>' +
@@ -713,8 +761,8 @@
       const header = document.createElement('div');
       header.className = 'relation-detail-header';
       header.innerHTML =
-        '<span class="label-text">' + (relation.label ? escapeHtml(relation.label) : '(sin etiqueta)') + '</span>' +
-        '<button class="relation-detail-close" title="Cerrar">&times;</button>';
+        '<span class="label-text">' + (relation.label ? escapeHtml(relation.label) : '(no label)') + '</span>' +
+        '<button class="relation-detail-close" title="Close">&times;</button>';
       relationDetailEl.appendChild(header);
       header.querySelector('.relation-detail-close').onclick = () => {
         selectedRelationId = null;
