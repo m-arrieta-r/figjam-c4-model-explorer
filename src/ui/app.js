@@ -1,14 +1,16 @@
-let currentBoxes = [];
+let currentContainers = [];
 let currentRelations = [];
 let selectedRelationId = null;
+let selectedContainerId = null;
 let searchQuery = "";
 let exportFormat = "mermaid";
 
 const relationsEl = document.getElementById("relations");
-const boxesEl = document.getElementById("boxes");
-const boxCountEl = document.getElementById("box-count");
+const containersEl = document.getElementById("containers");
+const containerCountEl = document.getElementById("container-count");
 const relationCountEl = document.getElementById("relation-count");
 const relationDetailEl = document.getElementById("relation-detail");
+const containerDetailEl = document.getElementById("container-detail");
 const mermaidOutput = document.getElementById("mermaid-output");
 const copyBtn = document.getElementById("copy");
 const copyStatus = document.getElementById("copy-status");
@@ -20,15 +22,15 @@ const formatButtons = document.querySelectorAll(".format-btn");
 const tabButtons = document.querySelectorAll(".tab-btn");
 const tabViews = {
     relations: document.getElementById("relations-view"),
-    boxes: document.getElementById("boxes-view"),
+    containers: document.getElementById("containers-view"),
     export: document.getElementById("export-view"),
 };
 
 function renderExportOutput() {
     mermaidOutput.value =
         exportFormat === "likec4"
-            ? toLikeC4Dsl(currentBoxes, currentRelations)
-            : toMermaidC4(currentBoxes, currentRelations);
+            ? toLikeC4Dsl(currentContainers, currentRelations)
+            : toMermaidC4(currentContainers, currentRelations);
     copyStatus.textContent = "";
 }
 
@@ -72,31 +74,31 @@ function matchesSearch(fields) {
     return query.split(/\s+/).every((term) => haystack.includes(term));
 }
 
-function boxMatchesSearch(b) {
-    return matchesSearch([b.name, b.description, b.technology, b.elementType]);
+function containerMatchesSearch(c) {
+    return matchesSearch([c.name, c.description, c.technology, c.elementType]);
 }
 
 function relationMatchesSearch(r) {
-    const sourceBox = findBox(r.source);
-    const targetBox = findBox(r.target);
+    const sourceContainer = findContainer(r.source);
+    const targetContainer = findContainer(r.target);
     return matchesSearch([
         r.sourceName,
         r.targetName,
         r.label,
         r.technology,
-        sourceBox && sourceBox.description,
-        sourceBox && sourceBox.technology,
-        sourceBox && sourceBox.elementType,
-        targetBox && targetBox.description,
-        targetBox && targetBox.technology,
-        targetBox && targetBox.elementType,
+        sourceContainer && sourceContainer.description,
+        sourceContainer && sourceContainer.technology,
+        sourceContainer && sourceContainer.elementType,
+        targetContainer && targetContainer.description,
+        targetContainer && targetContainer.technology,
+        targetContainer && targetContainer.elementType,
     ]);
 }
 
 searchInputEl.addEventListener("input", () => {
     searchQuery = searchInputEl.value;
     searchClearEl.style.display = searchQuery ? "inline-flex" : "none";
-    renderBoxes();
+    renderContainers();
     renderRelations();
 });
 
@@ -104,7 +106,7 @@ searchClearEl.onclick = () => {
     searchInputEl.value = "";
     searchQuery = "";
     searchClearEl.style.display = "none";
-    renderBoxes();
+    renderContainers();
     renderRelations();
     searchInputEl.focus();
 };
@@ -151,58 +153,71 @@ const EMPTY_ICON_SVG =
     '<path d="M21 21l-4.3-4.3"></path>' +
     "</svg>";
 
-function renderBoxes() {
-    const filtered = currentBoxes.filter(boxMatchesSearch);
-    boxCountEl.textContent =
-        filtered.length === currentBoxes.length
-            ? currentBoxes.length
-            : filtered.length + "/" + currentBoxes.length;
-    boxesEl.innerHTML = "";
-    if (currentBoxes.length === 0) {
-        boxesEl.innerHTML = emptyStateHtml(
+function renderContainers() {
+    const filtered = currentContainers.filter(containerMatchesSearch);
+    containerCountEl.textContent =
+        filtered.length === currentContainers.length
+            ? currentContainers.length
+            : filtered.length + "/" + currentContainers.length;
+    containersEl.innerHTML = "";
+    if (currentContainers.length === 0) {
+        containersEl.innerHTML = emptyStateHtml(
             EMPTY_ICON_SVG,
-            "No boxes yet",
+            "No containers yet",
             "Run Refresh to extract shapes from the FigJam canvas.",
         );
+        hideContainerDetail();
         return;
     }
     if (filtered.length === 0) {
-        boxesEl.innerHTML = emptyStateHtml(
+        containersEl.innerHTML = emptyStateHtml(
             EMPTY_ICON_SVG,
             "No matches",
-            "No boxes match your search.",
+            "No containers match your search.",
         );
+        hideContainerDetail();
         return;
     }
-    filtered.forEach((b) => {
+    filtered.forEach((c) => {
         const item = document.createElement("div");
-        item.className = "card box-card";
-        item.setAttribute("data-id", b.id);
-        const isFallback = b.labelSource === "node-name-fallback";
+        item.className =
+            "card container-card" +
+            (c.id === selectedContainerId ? " selected" : "");
+        item.setAttribute("data-id", c.id);
+        const isFallback = c.labelSource === "node-name-fallback";
 
         const header = document.createElement("div");
-        header.className = "box-card-header";
+        header.className = "container-card-header";
         header.innerHTML =
             '<span class="name">' +
-            escapeHtml(b.name) +
+            escapeHtml(c.name) +
             "</span>" +
             fallbackWarningHtml(isFallback) +
-            typeBadgeHtml(b.elementType);
+            typeBadgeHtml(c.elementType);
         item.appendChild(header);
 
         const locateBtn = document.createElement("button");
         locateBtn.className = "icon-btn locate-corner";
-        locateBtn.setAttribute("data-id", b.id);
+        locateBtn.setAttribute("data-id", c.id);
         locateBtn.title = "Go to element on canvas";
         locateBtn.innerHTML = LOCATE_ICON_SVG;
         item.appendChild(locateBtn);
 
-        if (b.technology || b.description) {
-            item.appendChild(renderBoxDetail(b.technology, b.description));
+        if (c.technology || c.description) {
+            item.appendChild(renderContainerMeta(c.technology, c.description));
         }
 
-        boxesEl.appendChild(item);
+        containersEl.appendChild(item);
     });
+
+    if (
+        selectedContainerId &&
+        filtered.some((c) => c.id === selectedContainerId)
+    ) {
+        renderContainerDetail(selectedContainerId);
+    } else {
+        hideContainerDetail();
+    }
 }
 
 const KNOWN_TYPE_COLORS = {
@@ -245,9 +260,9 @@ function typeBadgeHtml(elementType) {
     );
 }
 
-function renderBoxDetail(technology, description) {
+function renderContainerMeta(technology, description) {
     const detail = document.createElement("div");
-    detail.className = "box-detail";
+    detail.className = "container-meta";
     detail.innerHTML =
         (technology
             ? '<div class="tech-row"><span class="tech-label">Tech</span><span class="tech">' +
@@ -273,12 +288,44 @@ const DOWN_ARROW_SVG =
     '<path d="M12 4v14M6 13l6 6 6-6"></path>' +
     "</svg>";
 
-boxesEl.addEventListener("click", (event) => {
-    const btn = event.target.closest(".icon-btn");
-    if (!btn) return;
-    const id = btn.getAttribute("data-id");
-    if (id) {
-        parent.postMessage({ pluginMessage: { type: "focus", id } }, "*");
+const OUT_ARROW_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M4 12h14M13 6l6 6-6 6"></path>' +
+    "</svg>";
+
+const IN_ARROW_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M20 12H6M11 6l-6 6 6 6"></path>' +
+    "</svg>";
+
+containersEl.addEventListener("click", (event) => {
+    const focusBtn = event.target.closest(".icon-btn");
+    if (focusBtn) {
+        const id = focusBtn.getAttribute("data-id");
+        if (id) {
+            parent.postMessage({ pluginMessage: { type: "focus", id } }, "*");
+        }
+    }
+    const card = event.target.closest(".container-card");
+    if (!card) return;
+    const containerId = card.getAttribute("data-id");
+    selectedContainerId = focusBtn
+        ? containerId
+        : selectedContainerId === containerId
+          ? null
+          : containerId;
+    containersEl.querySelectorAll(".container-card").forEach((el) => {
+        el.classList.toggle(
+            "selected",
+            el.getAttribute("data-id") === selectedContainerId,
+        );
+    });
+    if (selectedContainerId) {
+        renderContainerDetail(selectedContainerId);
+    } else {
+        hideContainerDetail();
     }
 });
 
@@ -308,8 +355,8 @@ function renderRelations() {
         return;
     }
     filtered.forEach((r) => {
-        const sourceBox = findBox(r.source);
-        const targetBox = findBox(r.target);
+        const sourceContainer = findContainer(r.source);
+        const targetContainer = findContainer(r.target);
 
         const card = document.createElement("div");
         card.className =
@@ -329,9 +376,10 @@ function renderRelations() {
             escapeHtml(r.sourceName) +
             "</span>" +
             fallbackWarningHtml(
-                sourceBox && sourceBox.labelSource === "node-name-fallback",
+                sourceContainer &&
+                    sourceContainer.labelSource === "node-name-fallback",
             ) +
-            typeBadgeHtml(sourceBox && sourceBox.elementType);
+            typeBadgeHtml(sourceContainer && sourceContainer.elementType);
 
         const connector = document.createElement("div");
         connector.className = "relation-connector";
@@ -364,9 +412,10 @@ function renderRelations() {
             escapeHtml(r.targetName) +
             "</span>" +
             fallbackWarningHtml(
-                targetBox && targetBox.labelSource === "node-name-fallback",
+                targetContainer &&
+                    targetContainer.labelSource === "node-name-fallback",
             ) +
-            typeBadgeHtml(targetBox && targetBox.elementType);
+            typeBadgeHtml(targetContainer && targetContainer.elementType);
 
         const locateBtn = document.createElement("button");
         locateBtn.className = "icon-btn locate-corner";
@@ -391,14 +440,15 @@ function renderRelations() {
     }
 }
 
-function findBox(id) {
-    return currentBoxes.find((b) => b.id === id) || null;
+function findContainer(id) {
+    return currentContainers.find((c) => c.id === id) || null;
 }
 
 function renderEndpointCard(role, nodeId, fallbackName) {
-    const box = findBox(nodeId);
-    const name = box ? box.name : fallbackName;
-    const isFallback = box && box.labelSource === "node-name-fallback";
+    const container = findContainer(nodeId);
+    const name = container ? container.name : fallbackName;
+    const isFallback =
+        container && container.labelSource === "node-name-fallback";
     const card = document.createElement("div");
     card.className = "endpoint-card";
 
@@ -413,8 +463,8 @@ function renderEndpointCard(role, nodeId, fallbackName) {
         '<span class="name">' +
         escapeHtml(name) +
         "</span>" +
-        (box ? fallbackWarningHtml(isFallback) : "") +
-        (box ? typeBadgeHtml(box.elementType) : "");
+        (container ? fallbackWarningHtml(isFallback) : "") +
+        (container ? typeBadgeHtml(container.elementType) : "");
 
     const roleEl = document.createElement("div");
     roleEl.className = "endpoint-role";
@@ -423,8 +473,10 @@ function renderEndpointCard(role, nodeId, fallbackName) {
     const body = document.createElement("div");
     body.className = "endpoint-body";
     body.appendChild(nameRow);
-    if (box && (box.technology || box.description)) {
-        body.appendChild(renderBoxDetail(box.technology, box.description));
+    if (container && (container.technology || container.description)) {
+        body.appendChild(
+            renderContainerMeta(container.technology, container.description),
+        );
     }
 
     card.appendChild(roleEl);
@@ -490,6 +542,153 @@ function hideRelationDetail() {
     relationDetailEl.innerHTML = "";
 }
 
+function containerRelationRow(relation, direction) {
+    const otherId = direction === "out" ? relation.target : relation.source;
+    const otherName =
+        direction === "out" ? relation.targetName : relation.sourceName;
+    const otherContainer = findContainer(otherId);
+    const name = otherContainer ? otherContainer.name : otherName;
+
+    const row = document.createElement("div");
+    row.className = "cd-relation-row";
+    row.setAttribute("data-relation-id", relation.id);
+    row.title = "Open this relation in the Relations tab";
+
+    const labelPart = relation.label
+        ? '<span class="cd-relation-label">' +
+          escapeHtml(relation.label) +
+          "</span>"
+        : relation.technology
+          ? ""
+          : '<span class="cd-relation-label">(no label)</span>';
+    const techPart = relation.technology
+        ? '<span class="relation-tech">' +
+          escapeHtml(relation.technology) +
+          "</span>"
+        : "";
+
+    row.innerHTML =
+        '<button class="icon-btn" data-id="' +
+        escapeHtml(relation.id) +
+        '" title="Go to connector on canvas">' +
+        LOCATE_ICON_SVG +
+        "</button>" +
+        '<span class="cd-relation-arrow ' +
+        (direction === "out" ? "out" : "in") +
+        '">' +
+        (direction === "out" ? OUT_ARROW_SVG : IN_ARROW_SVG) +
+        "</span>" +
+        '<div class="cd-relation-info">' +
+        '<div class="cd-relation-endpoint"><span class="name">' +
+        escapeHtml(name) +
+        "</span>" +
+        typeBadgeHtml(otherContainer && otherContainer.elementType) +
+        "</div>" +
+        '<div class="cd-relation-meta">' +
+        labelPart +
+        techPart +
+        "</div>" +
+        "</div>";
+    return row;
+}
+
+function containerRelationSection(title, relations, direction) {
+    const section = document.createElement("div");
+    section.className = "cd-section";
+    const heading = document.createElement("div");
+    heading.className = "cd-section-title";
+    heading.textContent = title + " (" + relations.length + ")";
+    section.appendChild(heading);
+    if (relations.length === 0) {
+        const none = document.createElement("div");
+        none.className = "cd-section-empty";
+        none.textContent = "None";
+        section.appendChild(none);
+        return section;
+    }
+    relations.forEach((r) =>
+        section.appendChild(containerRelationRow(r, direction)),
+    );
+    return section;
+}
+
+function renderContainerDetail(containerId) {
+    const container = findContainer(containerId);
+    if (!container) {
+        hideContainerDetail();
+        return;
+    }
+    const outgoing = currentRelations.filter((r) => r.source === containerId);
+    const incoming = currentRelations.filter((r) => r.target === containerId);
+
+    containerDetailEl.innerHTML = "";
+
+    const header = document.createElement("div");
+    header.className = "relation-detail-header";
+    header.innerHTML =
+        '<span class="cd-header-name">' +
+        escapeHtml(container.name) +
+        "</span>" +
+        '<button class="relation-detail-close" title="Close">&times;</button>';
+    containerDetailEl.appendChild(header);
+    header.querySelector(".relation-detail-close").onclick = () => {
+        selectedContainerId = null;
+        hideContainerDetail();
+        containersEl
+            .querySelectorAll(".container-card.selected")
+            .forEach((el) => el.classList.remove("selected"));
+    };
+
+    containerDetailEl.appendChild(
+        containerRelationSection("Outgoing", outgoing, "out"),
+    );
+    containerDetailEl.appendChild(
+        containerRelationSection("Incoming", incoming, "in"),
+    );
+
+    const card = containersEl.querySelector(
+        '.container-card[data-id="' + containerId + '"]',
+    );
+    if (card) {
+        card.insertAdjacentElement("afterend", containerDetailEl);
+    }
+
+    containerDetailEl.classList.remove("hidden");
+}
+
+function hideContainerDetail() {
+    containerDetailEl.classList.add("hidden");
+    containerDetailEl.innerHTML = "";
+}
+
+// Selects a container in the Containers tab (switching to it if needed),
+// scrolls its card into view and opens its incoming/outgoing detail panel.
+function openContainerInList(containerId, scroll) {
+    if (!findContainer(containerId)) return;
+    selectedContainerId = containerId;
+    showTab("containers");
+    renderContainers();
+    if (scroll) {
+        const card = containersEl.querySelector(
+            '.container-card[data-id="' + containerId + '"]',
+        );
+        if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+}
+
+// Same, but for a relation card in the Relations tab (used when clicking a
+// relation row inside the container detail panel).
+function openRelationInList(relationId) {
+    if (!currentRelations.some((r) => r.id === relationId)) return;
+    selectedRelationId = relationId;
+    showTab("relations");
+    renderRelations();
+    const card = relationsEl.querySelector(
+        '.relation-card[data-relation-id="' + relationId + '"]',
+    );
+    if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
 relationsEl.addEventListener("click", (event) => {
     const focusBtn = event.target.closest(".icon-btn");
     if (focusBtn) {
@@ -528,6 +727,21 @@ relationDetailEl.addEventListener("click", (event) => {
     }
 });
 
+containerDetailEl.addEventListener("click", (event) => {
+    const btn = event.target.closest(".icon-btn");
+    if (btn) {
+        const id = btn.getAttribute("data-id");
+        if (id) {
+            parent.postMessage({ pluginMessage: { type: "focus", id } }, "*");
+        }
+        return;
+    }
+    const row = event.target.closest(".cd-relation-row");
+    if (row) {
+        openRelationInList(row.getAttribute("data-relation-id"));
+    }
+});
+
 function escapeHtml(str) {
     return String(str).replace(
         /[&<>"']/g,
@@ -546,13 +760,17 @@ window.onmessage = (event) => {
     const msg = event.data.pluginMessage;
     if (!msg) return;
     if (msg.type === "relations") {
-        currentBoxes = msg.boxes || [];
+        currentContainers = msg.containers || [];
         currentRelations = msg.relations || [];
         if (msg.focusRelationId) {
             selectedRelationId = msg.focusRelationId;
             showTab("relations");
         }
-        renderBoxes();
+        if (msg.focusContainerId) {
+            selectedContainerId = msg.focusContainerId;
+            showTab("containers");
+        }
+        renderContainers();
         renderRelations();
         if (msg.focusRelationId) {
             const card = relationsEl.querySelector(
@@ -563,9 +781,21 @@ window.onmessage = (event) => {
             if (card)
                 card.scrollIntoView({ behavior: "smooth", block: "center" });
         }
+        if (msg.focusContainerId) {
+            const card = containersEl.querySelector(
+                '.container-card[data-id="' + msg.focusContainerId + '"]',
+            );
+            if (card)
+                card.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
         if (!tabViews.export.classList.contains("hidden")) {
             renderExportOutput();
         }
+    }
+    // Sent by the plugin when the user selects a known container shape on
+    // the canvas: mirror that selection in the Containers tab.
+    if (msg.type === "container-selected" && msg.id) {
+        openContainerInList(msg.id, true);
     }
 };
 

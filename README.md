@@ -13,19 +13,27 @@ o **LikeC4 DSL**.
   partir de los textos del shape (soporta varios formatos de plantilla, ver
   más abajo).
 - Muestra todo en un panel con tres pestañas:
-  - **Relaciones**: lista de conectores con origen → etiqueta → destino. Al
+  - **Relations**: lista de conectores con origen → etiqueta → destino. Al
     hacer clic en una relación se abre un panel con el detalle (Start/End)
     de esa relación justo debajo. Cada extremo y el conector tienen su
     propio ícono para saltar a ese elemento en el lienzo.
-  - **Boxes**: lista de todos los shapes resueltos, con su tipo, tecnología
-    y descripción.
+  - **Containers**: lista de todos los shapes resueltos, con su tipo,
+    tecnología y descripción. Al hacer clic en un container se abre un panel
+    con **todas sus relaciones de salida (Outgoing) y de entrada (Incoming)**;
+    cada fila permite saltar al conector en el lienzo o abrir esa relación en
+    la pestaña Relations.
   - **Export**: genera el diagrama en formato Mermaid C4 o LikeC4 DSL
     (toggle), con botón de copiar al portapapeles.
 - Buscador que filtra por nombre, descripción, tecnología o tipo, en ambas
-  pestañas (Relaciones y Boxes).
-- Seleccionar un conector en el lienzo y usar el botón **"Ver relación C4"**
+  pestañas (Relations y Containers).
+- Con el plugin abierto, **seleccionar un shape en el lienzo** abre
+  automáticamente ese container en la pestaña Containers con sus relaciones
+  de entrada y salida.
+- Seleccionar un conector en el lienzo y usar el botón **"View C4 relation"**
   (aparece en el panel de propiedades de Figma) abre el plugin directo en el
-  detalle de esa relación.
+  detalle de esa relación. Igual con un shape y el botón
+  **"View C4 container"**, que abre el plugin directo en las relaciones de
+  ese container.
 
 ## Requisitos
 

@@ -6,7 +6,8 @@
   "main": "dist/code.js",
   "ui": "dist/ui.html",
   "relaunchButtons": [
-    { "command": "view-relation", "name": "View C4 relation" }
+    { "command": "view-relation", "name": "View C4 relation" },
+    { "command": "view-container", "name": "View C4 container" }
   ],
   "networkAccess": {
     "allowedDomains": ["none"]

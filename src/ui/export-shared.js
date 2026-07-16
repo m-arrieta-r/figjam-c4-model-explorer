@@ -18,9 +18,9 @@ function slugify(name, used) {
     return id;
 }
 
-function buildIdMap(boxes) {
+function buildIdMap(containers) {
     const used = new Set();
     const idMap = new Map();
-    boxes.forEach((b) => idMap.set(b.id, slugify(b.name, used)));
+    containers.forEach((c) => idMap.set(c.id, slugify(c.name, used)));
     return idMap;
 }

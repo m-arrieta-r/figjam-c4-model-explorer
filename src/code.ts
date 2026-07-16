@@ -1,6 +1,6 @@
 figma.showUI(__html__, { width: 480, height: 640, themeColors: true });
 
-interface Box {
+interface Container {
   id: string;
   name: string;
   nodeType: string;
@@ -21,12 +21,12 @@ interface Relation {
 }
 
 interface ExtractResult {
-  boxes: Box[];
+  containers: Container[];
   relations: Relation[];
   skipped: number;
 }
 
-interface BoxDetails {
+interface ContainerDetails {
   name: string;
   nameSource: string;
   elementType: string | null;
@@ -156,8 +156,8 @@ function extractFlatDetails(node: BaseNode): FlatDetails {
 }
 
 // Extracts the title, technology (bracketed annotation, e.g. "[Software
-// System]" or "[Container: Java, Spring]") and description of a C4 box.
-function extractBoxDetails(node: BaseNode | null): BoxDetails {
+// System]" or "[Container: Java, Spring]") and description of a C4 container.
+function extractContainerDetails(node: BaseNode | null): ContainerDetails {
   if (!node) {
     return {
       name: "Unknown",
@@ -241,11 +241,16 @@ function extractBoxDetails(node: BaseNode | null): BoxDetails {
   };
 }
 
+// Container ids from the last extraction. Used by the selectionchange
+// listener to tell "user selected a C4 container on the canvas" apart from
+// selecting any other random node.
+let knownContainerIds = new Set<string>();
+
 function extractRelations(): ExtractResult {
   const connectors = figma.currentPage.findAllWithCriteria({
     types: ["CONNECTOR"],
   });
-  const boxMap = new Map<string, Box>();
+  const containerMap = new Map<string, Container>();
   const relations: Relation[] = [];
   let skipped = 0;
 
@@ -274,8 +279,8 @@ function extractRelations(): ExtractResult {
     const targetId = end.endpointNodeId;
     const sourceNode = figma.getNodeById(sourceId);
     const targetNode = figma.getNodeById(targetId);
-    const sourceDetails = extractBoxDetails(sourceNode);
-    const targetDetails = extractBoxDetails(targetNode);
+    const sourceDetails = extractContainerDetails(sourceNode);
+    const targetDetails = extractContainerDetails(targetNode);
 
     console.log(
       `[extract-c4] connector ${connector.id}: ` +
@@ -283,8 +288,8 @@ function extractRelations(): ExtractResult {
         `${targetNode?.type ?? "null"}#${targetId} "${targetDetails.name}" (${targetDetails.nameSource})`,
     );
 
-    if (!boxMap.has(sourceId)) {
-      boxMap.set(sourceId, {
+    if (!containerMap.has(sourceId)) {
+      containerMap.set(sourceId, {
         id: sourceId,
         name: sourceDetails.name,
         nodeType: sourceNode?.type ?? "unknown",
@@ -294,8 +299,8 @@ function extractRelations(): ExtractResult {
         description: sourceDetails.description,
       });
     }
-    if (!boxMap.has(targetId)) {
-      boxMap.set(targetId, {
+    if (!containerMap.has(targetId)) {
+      containerMap.set(targetId, {
         id: targetId,
         name: targetDetails.name,
         nodeType: targetNode?.type ?? "unknown",
@@ -304,6 +309,18 @@ function extractRelations(): ExtractResult {
         technology: targetDetails.technology,
         description: targetDetails.description,
       });
+    }
+
+    // Same relaunch integration as connectors (see below), but for the
+    // containers themselves: selecting the shape on the canvas shows a
+    // "view-container" button in Figma's property panel that opens the
+    // plugin straight into that container's relations.
+    for (const endpointNode of [sourceNode, targetNode]) {
+      if (endpointNode && "setRelaunchData" in endpointNode) {
+        endpointNode.setRelaunchData({
+          "view-container": "View this container's relations in the C4 panel",
+        });
+      }
     }
 
     const rawLabel =
@@ -339,12 +356,13 @@ function extractRelations(): ExtractResult {
     });
   }
 
-  const boxes: Box[] = Array.from(boxMap.values());
+  const containers: Container[] = Array.from(containerMap.values());
+  knownContainerIds = new Set(containerMap.keys());
   console.log(
-    `[extract-c4] resolved ${boxes.length} box(es), skipped ${skipped} connector(s)`,
-    boxes,
+    `[extract-c4] resolved ${containers.length} container(s), skipped ${skipped} connector(s)`,
+    containers,
   );
-  return { boxes, relations, skipped };
+  return { containers, relations, skipped };
 }
 
 function getSelectedConnectorId(): string | null {
@@ -354,9 +372,22 @@ function getSelectedConnectorId(): string | null {
   return connector ? connector.id : null;
 }
 
-function runExtraction(focusRelationId: string | null = null) {
+function getSelectedContainerId(): string | null {
+  const node = figma.currentPage.selection.find((n) => n.type !== "CONNECTOR");
+  return node ? node.id : null;
+}
+
+function runExtraction(
+  focusRelationId: string | null = null,
+  focusContainerId: string | null = null,
+) {
   const result = extractRelations();
-  figma.ui.postMessage({ type: "relations", ...result, focusRelationId });
+  figma.ui.postMessage({
+    type: "relations",
+    ...result,
+    focusRelationId,
+    focusContainerId,
+  });
 }
 
 interface ResolvedEndpointRef {
@@ -447,6 +478,24 @@ function summarizeNode(node: BaseNode, depth = 4): NodeSummary {
   return summary;
 }
 
+// Set by focusNode right before it changes the canvas selection, so the
+// selectionchange listener can tell our own programmatic selection apart
+// from the user actually clicking a shape (and not bounce the UI around).
+let lastProgrammaticSelectionId: string | null = null;
+
+figma.on("selectionchange", () => {
+  const selection = figma.currentPage.selection;
+  if (selection.length !== 1) return;
+  const id = selection[0].id;
+  if (id === lastProgrammaticSelectionId) {
+    lastProgrammaticSelectionId = null;
+    return;
+  }
+  if (knownContainerIds.has(id)) {
+    figma.ui.postMessage({ type: "container-selected", id });
+  }
+});
+
 function focusNode(id: string) {
   const node = figma.getNodeById(id);
 
@@ -507,6 +556,7 @@ function focusNode(id: string) {
       );
       figma.currentPage = page;
     }
+    lastProgrammaticSelectionId = sceneNode.id;
     figma.currentPage.selection = [sceneNode];
     figma.viewport.scrollAndZoomIntoView([sceneNode]);
   } catch (err) {
@@ -530,7 +580,9 @@ figma.ui.onmessage = (msg: { type: string; id?: string }) => {
   if (msg.type === "ui-ready") {
     const focusRelationId =
       figma.command === "view-relation" ? getSelectedConnectorId() : null;
-    runExtraction(focusRelationId);
+    const focusContainerId =
+      figma.command === "view-container" ? getSelectedContainerId() : null;
+    runExtraction(focusRelationId, focusContainerId);
   }
   if (msg.type === "extract") {
     runExtraction();

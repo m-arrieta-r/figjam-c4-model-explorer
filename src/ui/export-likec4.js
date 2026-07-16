@@ -26,34 +26,34 @@ function toCamelIdentifier(raw, fallback) {
     );
 }
 
-function likeC4KindFor(box) {
-    const raw = (box.elementType || "").trim().toLowerCase();
+function likeC4KindFor(container) {
+    const raw = (container.elementType || "").trim().toLowerCase();
     if (!raw) return "component";
     return LIKEC4_KNOWN_KINDS[raw] || toCamelIdentifier(raw, "component");
 }
 
-function toLikeC4Dsl(boxes, relations) {
-    const idMap = buildIdMap(boxes);
-    const kindFor = new Map(boxes.map((b) => [b.id, likeC4KindFor(b)]));
+function toLikeC4Dsl(containers, relations) {
+    const idMap = buildIdMap(containers);
+    const kindFor = new Map(containers.map((c) => [c.id, likeC4KindFor(c)]));
     const kindsUsed = Array.from(new Set(kindFor.values())).sort();
 
     const lines = ["specification {"];
     kindsUsed.forEach((k) => lines.push("  element " + k));
     lines.push("}", "", "model {");
 
-    boxes.forEach((b) => {
-        const id = idMap.get(b.id);
-        const kind = kindFor.get(b.id);
-        const hasBody = Boolean(b.technology || b.description);
+    containers.forEach((c) => {
+        const id = idMap.get(c.id);
+        const kind = kindFor.get(c.id);
+        const hasBody = Boolean(c.technology || c.description);
         if (!hasBody) {
-            lines.push("  " + kind + " " + id + ' "' + esc(b.name) + '"');
+            lines.push("  " + kind + " " + id + ' "' + esc(c.name) + '"');
             return;
         }
-        lines.push("  " + kind + " " + id + ' "' + esc(b.name) + '" {');
-        if (b.technology)
-            lines.push('    technology "' + esc(b.technology) + '"');
-        if (b.description)
-            lines.push('    description "' + esc(b.description) + '"');
+        lines.push("  " + kind + " " + id + ' "' + esc(c.name) + '" {');
+        if (c.technology)
+            lines.push('    technology "' + esc(c.technology) + '"');
+        if (c.description)
+            lines.push('    description "' + esc(c.description) + '"');
         lines.push("  }");
     });
 

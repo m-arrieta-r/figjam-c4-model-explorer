@@ -1,17 +1,17 @@
-function toMermaidC4(boxes, relations) {
-    const idMap = buildIdMap(boxes);
+function toMermaidC4(containers, relations) {
+    const idMap = buildIdMap(containers);
 
     const lines = ["C4Container", ""];
-    boxes.forEach((b) => {
-        const id = idMap.get(b.id);
-        const args = ['"' + esc(b.name) + '"'];
-        if (b.description) {
+    containers.forEach((c) => {
+        const id = idMap.get(c.id);
+        const args = ['"' + esc(c.name) + '"'];
+        if (c.description) {
             args.push(
-                '"' + esc(b.technology) + '"',
-                '"' + esc(b.description) + '"',
+                '"' + esc(c.technology) + '"',
+                '"' + esc(c.description) + '"',
             );
-        } else if (b.technology) {
-            args.push('"' + esc(b.technology) + '"');
+        } else if (c.technology) {
+            args.push('"' + esc(c.technology) + '"');
         }
         lines.push("Container(" + id + ", " + args.join(", ") + ")");
     });

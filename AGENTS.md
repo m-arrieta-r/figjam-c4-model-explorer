@@ -5,10 +5,14 @@ Context for LLM coding agents working in this repo. Read this before making chan
 ## What this is
 
 A FigJam plugin. It scans the current page for `CONNECTOR` nodes, resolves the
-shapes at both ends of each connector into "boxes" (extracting name /
+shapes at both ends of each connector into "containers" (extracting name /
 C4 element type / technology / description from their text layers), and shows
-the result in a plugin UI with three tabs: **Relaciones** (relations),
-**Boxes**, and **Export** (Mermaid C4 or LikeC4 DSL).
+the result in a plugin UI with three tabs: **Relations**, **Containers**, and
+**Export** (Mermaid C4 or LikeC4 DSL). The word "container" here is the
+project-wide term for a connector endpoint shape (any C4 element — Person,
+Software System, Database... — not just the C4 "Container" type); it replaced
+the earlier term "box" everywhere (types, message payloads, DOM ids/classes,
+docs), so don't reintroduce "box" naming.
 
 ## Architecture
 
@@ -42,7 +46,8 @@ Message protocol between the two (informal, not typed across the boundary):
 | UI → plugin | `extract` | — | Re-run extraction (Refresh button). |
 | UI → plugin | `focus` | `id` | Select + zoom to a node on the canvas. |
 | UI → plugin | `close` | — | Close the plugin. |
-| plugin → UI | `relations` | `boxes`, `relations`, `skipped`, `focusRelationId` | Extraction result. `focusRelationId` is non-null only when launched via the relaunch button (see below). |
+| plugin → UI | `relations` | `containers`, `relations`, `skipped`, `focusRelationId`, `focusContainerId` | Extraction result. `focusRelationId` / `focusContainerId` are non-null only when launched via the corresponding relaunch button (see below). |
+| plugin → UI | `container-selected` | `id` | Sent by the `selectionchange` listener when the user selects exactly one node on the canvas whose id is a known container (from the last extraction). The UI switches to the Containers tab, selects that card and opens its incoming/outgoing detail panel. Programmatic selections made by `focusNode` are suppressed via `lastProgrammaticSelectionId` so clicking a locate icon in the UI doesn't bounce the panel to the Containers tab — keep that suppression if you touch selection code. |
 
 ### Startup race — do not reintroduce
 
@@ -60,8 +65,8 @@ scope. Keep it that way — don't add a bare `runExtraction()` call after
 
 ## Text extraction (the tricky part)
 
-`extractBoxDetails(node)` in `code.ts` turns an arbitrary connector endpoint
-node into `{ name, nameSource, elementType, technology, description }`. It
+`extractContainerDetails(node)` in `code.ts` turns an arbitrary connector
+endpoint node into `{ name, nameSource, elementType, technology, description }`. It
 tries strategies in order, falling through if one doesn't produce a name:
 
 1. **Simple text-bearing node** — the node itself has `.text.characters` or
@@ -86,16 +91,16 @@ tries strategies in order, falling through if one doesn't produce a name:
    held for every real shape template seen so far.
 4. **`node-name-fallback`** — nothing textual found; use the node's own
    Figma layer name. Flagged via `labelSource === 'node-name-fallback'`, and
-   surfaced in the UI as a small ⚠ (see `fallbackWarningHtml` in `ui.html`)
+   surfaced in the UI as a small ⚠ (see `fallbackWarningHtml` in `app.js`)
    rather than a full badge — treat this as "extraction probably guessed
-   wrong, the box may need a proper text layer."
+   wrong, the container may need a proper text layer."
 
 `splitTechAnnotation(raw)` then splits whatever bracket content was found on
 the first `:` — `"Container: Oracle APEX"` → `elementType: "Container"`,
 `technology: "Oracle APEX"`; `"Person"` (no colon) → `elementType: "Person"`,
 `technology: null`.
 
-If you need to debug a specific box's extraction, click its locate icon (🎯)
+If you need to debug a specific container's extraction, click its locate icon (🎯)
 in the UI — `focusNode()` in `code.ts` logs the full node subtree as JSON to
 the plugin console (Figma → Plugins → Development → Open Console). That JSON
 is the fastest way to see why a shape isn't parsing the way you'd expect —
@@ -110,9 +115,10 @@ for how these get combined into `dist/ui.html` at build time.
 
 - Sticky header (title, tabs with live counts, search bar) so it stays
   visible while scrolling long lists (some boards have 200+ relations).
-- Relations and boxes render as cards (`.relation-card` / `.box-card`), not
-  plain list rows — deliberate, a flat 3-column row layout wrapped badly for
-  long Spanish names (see git history around the UI redesign if curious).
+- Relations and containers render as cards (`.relation-card` /
+  `.container-card`), not plain list rows — deliberate, a flat 3-column row
+  layout wrapped badly for long Spanish names (see git history around the UI
+  redesign if curious).
 - Clicking a relation card (or its locate icons) toggles `#relation-detail`
   open/closed. That panel is a single reused DOM node that gets physically
   moved via `insertAdjacentElement('afterend', ...)` to sit right after the
@@ -121,16 +127,23 @@ for how these get combined into `dist/ui.html` at build time.
   detail panel at the end of `#relations` made it appear far below the
   clicked row, looking like "nothing happened." Keep this
   find-the-row-then-insert-after pattern if you touch that code.
+- Clicking a container card toggles `#container-detail` the same way (same
+  reused-node + insert-after pattern). It shows the container's name plus
+  two sections, **Outgoing** and **Incoming**, listing every relation where
+  the container is the source/target. Each row has a locate icon for the
+  connector, and clicking the row itself jumps to that relation in the
+  Relations tab (selects the card, scrolls to it, opens its detail).
 - Each relation card has **three** separate locate icons: source endpoint,
   target endpoint, and the connector itself (corner button) — each posts
   `focus` with a different id. Don't collapse these into one.
 - Search (`matchesSearch`) is accent-insensitive (NFD-normalize + strip
   combining marks) and matches name/description/technology/elementType
-  across both boxes and (via `findBox`) the endpoints of each relation.
+  across both containers and (via `findContainer`) the endpoints of each
+  relation.
 - Export tab toggles between `toMermaidC4()` (`export-mermaid.js`) and
   `toLikeC4Dsl()` (`export-likec4.js`), both built from the same
   `buildIdMap()`/`slugify()` in `export-shared.js` (stable, collision-free
-  per-box identifiers reused across both formats).
+  per-container identifiers reused across both formats).
 
 ## Relaunch button (canvas → plugin)
 
@@ -141,23 +154,29 @@ it. The supported integration point is `node.setRelaunchData()`, which shows
 a button in Figma's **properties panel** (FigJam: property menu) when that
 node is selected. This plugin uses it:
 
-- `manifest.json` declares `relaunchButtons: [{ command: "view-relation",
-  name: "Ver relación C4" }]`.
-- Every connector gets `connector.setRelaunchData({ "view-relation": "..." })`
-  during extraction (in `extractRelations()`), which (re)attaches the button
-  each time.
+- `manifest.json` declares two `relaunchButtons`: `view-relation`
+  ("View C4 relation") and `view-container` ("View C4 container").
+- During extraction (in `extractRelations()`), every connector gets
+  `setRelaunchData({ "view-relation": ... })` and both endpoint shapes get
+  `setRelaunchData({ "view-container": ... })`, which (re)attaches the
+  buttons each time.
 - On startup, if `figma.command === "view-relation"` (i.e. launched via that
   button), `getSelectedConnectorId()` reads the connector from
   `figma.currentPage.selection` and that id is threaded through as
   `focusRelationId` in the `relations` message, which `app.js` uses to
-  switch to the Relaciones tab, select the right card, scroll it into view,
-  and open its detail panel automatically.
+  switch to the Relations tab, select the right card, scroll it into view,
+  and open its detail panel automatically. `view-container` works the same
+  way via `getSelectedContainerId()` → `focusContainerId` → Containers tab.
+- While the plugin is **open**, a `figma.on("selectionchange")` listener does
+  the live equivalent: selecting a single known container on the canvas
+  posts `container-selected` to the UI (see the message table above,
+  including the `lastProgrammaticSelectionId` suppression detail).
 
 ## Conventions / things that look inconsistent on purpose
 
-- UI copy mixes Spanish (most labels, tooltips, empty states) and English tab
-  names ("Boxes", "Export") — that's intentional, matches what the user
-  explicitly asked for, not an oversight to "fix."
+- UI copy is English; plugin-side `figma.notify()` messages are Spanish —
+  intentional, matches what the user explicitly asked for, not an oversight
+  to "fix."
 - No test framework is set up. Verification during development has been done
   ad hoc with headless `jsdom` scripts in `/tmp` (install `jsdom` with
   `npm install --no-save jsdom` in a scratch dir, run `npm run build` first,
