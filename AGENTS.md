@@ -115,6 +115,41 @@ for how these get combined into `dist/ui.html` at build time.
 
 - Sticky header (title, tabs with live counts, search bar) so it stays
   visible while scrolling long lists (some boards have 200+ relations).
+- The Containers tab has a second row of filter chips (`#type-filter`) that
+  split the list by C4 element kind. `containerCategory(c)` in `app.js` maps
+  each container to one of `person` / `software-system` / `external-system` /
+  `ui` / `backend` / `database` / `container` / `component` / `other`. The
+  chip row hides itself when everything falls in a single category, and
+  resets to "All" if the active category disappears (e.g. after a search).
+  `openContainerInList` switches the active chip when the container it's
+  opening would otherwise be filtered out.
+  - `person`/`software-system`/`external-system` come from the container's
+    `elementType` text (Spanish + English keywords, accent-insensitive) plus
+    the shape's `fillColor` (extracted in `code.ts` — first non-near-white
+    solid fill in the node subtree, falling back to strokes). A red fill
+    (`isRedFill`, hue ≤20° or ≥335° with enough saturation) marks a *software
+    system* as external, matching the canvas convention (red = external,
+    orange = internal); badge colors mirror that.
+  - `ui`/`backend`/`database` exist because this C4 shape kit gives every
+    non-Person/System container the same generic `"[Container: ...]"`
+    annotation regardless of whether it's a frontend, a service, or a
+    database — `elementType` alone can't tell them apart. Instead,
+    `extractContainerKind(node)` in `code.ts` looks at the container's own
+    direct children (excluding nodes named `"Magnet"`, which are connector
+    attachment points, not icon geometry) for the small icon badge this kit
+    draws inside each shape: a literal `TEXT` node whose name or content is
+    `">_"` → `backend`; otherwise 3+ unnamed `ELLIPSE` children (the
+    "traffic-light" browser-window dots) → `ui`; exactly 2 unnamed `ELLIPSE`
+    children (the cylinder's top/bottom caps, with `RECTANGLE`s forming the
+    body between them) → `database`. This is a per-shape-template heuristic
+    confirmed against real node dumps (via the locate-icon + console-log
+    workflow below) — if a new shape template doesn't match this exact
+    ellipse/rectangle/text layout, `containerKind` comes back `null` and the
+    container falls through to keyword-based `container`/`component`/`other`.
+    `containerCategory` prefers `containerKind` over keyword matching when
+    both are available. Badge text for these three categories shows the
+    detected kind label ("UI"/"Backend"/"Database") instead of the
+    uninformative raw `"Container"` elementType.
 - Relations and containers render as cards (`.relation-card` /
   `.container-card`), not plain list rows — deliberate, a flat 3-column row
   layout wrapped badly for long Spanish names (see git history around the UI

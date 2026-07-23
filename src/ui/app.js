@@ -4,6 +4,7 @@ let selectedRelationId = null;
 let selectedContainerId = null;
 let searchQuery = "";
 let exportFormat = "mermaid";
+let typeFilter = "all";
 
 const relationsEl = document.getElementById("relations");
 const containersEl = document.getElementById("containers");
@@ -15,6 +16,7 @@ const mermaidOutput = document.getElementById("mermaid-output");
 const copyBtn = document.getElementById("copy");
 const copyStatus = document.getElementById("copy-status");
 const searchBarEl = document.getElementById("search-bar");
+const typeFilterEl = document.getElementById("type-filter");
 const searchInputEl = document.getElementById("search-input");
 const searchClearEl = document.getElementById("search-clear");
 const formatButtons = document.querySelectorAll(".format-btn");
@@ -153,8 +155,57 @@ const EMPTY_ICON_SVG =
     '<path d="M21 21l-4.3-4.3"></path>' +
     "</svg>";
 
+// Chip row that splits the Containers list by C4 element kind (Person,
+// System, Ext. System, Container...). Only categories present in the current
+// (search-filtered) result get a chip; hidden entirely when everything falls
+// in a single category.
+function renderTypeFilter(searchFiltered) {
+    const counts = {};
+    searchFiltered.forEach((c) => {
+        const cat = containerCategory(c);
+        counts[cat] = (counts[cat] || 0) + 1;
+    });
+    const present = CATEGORY_ORDER.filter((cat) => counts[cat]);
+    if (typeFilter !== "all" && !counts[typeFilter]) typeFilter = "all";
+    typeFilterEl.innerHTML = "";
+    typeFilterEl.classList.toggle("hidden", present.length <= 1);
+    if (present.length <= 1) return;
+
+    const chips = [["all", "All", searchFiltered.length]].concat(
+        present.map((cat) => [cat, CATEGORY_LABELS[cat], counts[cat]]),
+    );
+    chips.forEach(([key, label, count]) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "type-chip" + (typeFilter === key ? " active" : "");
+        const color = CATEGORY_COLORS[key];
+        chip.innerHTML =
+            (color
+                ? '<span class="chip-dot" style="background: ' +
+                  color.fg +
+                  ';"></span>'
+                : "") +
+            escapeHtml(label) +
+            '<span class="chip-count">' +
+            count +
+            "</span>";
+        chip.onclick = () => {
+            typeFilter = key;
+            renderContainers();
+        };
+        typeFilterEl.appendChild(chip);
+    });
+}
+
 function renderContainers() {
-    const filtered = currentContainers.filter(containerMatchesSearch);
+    const searchFiltered = currentContainers.filter(containerMatchesSearch);
+    renderTypeFilter(searchFiltered);
+    const filtered =
+        typeFilter === "all"
+            ? searchFiltered
+            : searchFiltered.filter(
+                  (c) => containerCategory(c) === typeFilter,
+              );
     containerCountEl.textContent =
         filtered.length === currentContainers.length
             ? currentContainers.length
@@ -193,7 +244,7 @@ function renderContainers() {
             escapeHtml(c.name) +
             "</span>" +
             fallbackWarningHtml(isFallback) +
-            typeBadgeHtml(c.elementType);
+            typeBadgeHtml(c);
         item.appendChild(header);
 
         const locateBtn = document.createElement("button");
@@ -220,13 +271,43 @@ function renderContainers() {
     }
 }
 
-const KNOWN_TYPE_COLORS = {
+// Category keys group containers by C4 element kind for the type tabs and
+// badge colors. Badge/dot colors mirror the canvas convention: internal
+// software systems are orange, external ones red. "ui"/"backend"/"database"
+// come from the container's detected icon (see containerCategory) since
+// UI/backend/DB containers all carry the same generic "Container" element
+// type and can't be told apart from that text alone.
+const CATEGORY_ORDER = [
+    "person",
+    "software-system",
+    "external-system",
+    "ui",
+    "backend",
+    "database",
+    "container",
+    "component",
+    "other",
+];
+const CATEGORY_LABELS = {
+    person: "Person",
+    "software-system": "System",
+    "external-system": "Ext. System",
+    ui: "UI",
+    backend: "Backend",
+    database: "Database",
+    container: "Container",
+    component: "Component",
+    other: "Other",
+};
+const CATEGORY_COLORS = {
     person: { bg: "#f3e8ff", fg: "#7c3aed" },
-    "software system": { bg: "#e6f7ee", fg: "#1f9254" },
-    "external system": { bg: "#f2eee0", fg: "#8a6d1f" },
-    container: { bg: "#e8f0fe", fg: "#1a56b0" },
-    component: { bg: "#ffe8ef", fg: "#c23163" },
+    "software-system": { bg: "#fff1e0", fg: "#c2410c" },
+    "external-system": { bg: "#fde3e3", fg: "#c2273f" },
+    ui: { bg: "#e0f2fe", fg: "#0369a1" },
+    backend: { bg: "#e8f0fe", fg: "#1a56b0" },
     database: { bg: "#e3f6f6", fg: "#0d7a7a" },
+    container: { bg: "#eef2f7", fg: "#475569" },
+    component: { bg: "#ffe8ef", fg: "#c23163" },
 };
 const FALLBACK_TYPE_COLORS = [
     { bg: "#fff4e0", fg: "#b56a00" },
@@ -243,19 +324,87 @@ function hashStr(str) {
     return Math.abs(h);
 }
 
-function typeBadgeHtml(elementType) {
-    if (!elementType) return "";
-    const key = elementType.trim().toLowerCase();
+function hexHueSat(hex) {
+    const m = /^#([0-9a-f]{6})$/i.exec(hex || "");
+    if (!m) return null;
+    const num = parseInt(m[1], 16);
+    const r = ((num >> 16) & 255) / 255;
+    const g = ((num >> 8) & 255) / 255;
+    const b = (num & 255) / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const d = max - min;
+    const sat = max === 0 ? 0 : d / max;
+    let hue = 0;
+    if (d > 0) {
+        if (max === r) hue = ((g - b) / d) % 6;
+        else if (max === g) hue = (b - r) / d + 2;
+        else hue = (r - g) / d + 4;
+        hue = (hue * 60 + 360) % 360;
+    }
+    return { hue: hue, sat: sat };
+}
+
+// Red shapes mark external software systems on the canvas (internal ones are
+// orange); hue splits them at ~20° so oranges don't classify as red.
+function isRedFill(fillColor) {
+    const hs = hexHueSat(fillColor);
+    return !!hs && hs.sat > 0.25 && (hs.hue >= 335 || hs.hue <= 20);
+}
+
+function containerCategory(c) {
+    const type = normalizeSearch(c.elementType || "");
+    if (/person|persona|actor|user|usuario/.test(type)) return "person";
+    if (/system|sistema/.test(type)) {
+        const external = /extern|\bext\b/.test(type) || isRedFill(c.fillColor);
+        return external ? "external-system" : "software-system";
+    }
+    // Everything below (Container/Component/no element type) may carry an
+    // icon-based kind detected from the shape's own children - see
+    // extractContainerKind in code.ts. Prefer that over keyword guessing.
+    if (c.containerKind === "ui") return "ui";
+    if (c.containerKind === "backend") return "backend";
+    if (c.containerKind === "database") return "database";
+    if (/database|base de datos|\bdb\b/.test(type)) return "database";
+    if (/component|componente/.test(type)) return "component";
+    if (/container|contenedor/.test(type)) return "container";
+    if (!type) return "other";
+    return "other";
+}
+
+function typeBadgeHtml(container) {
+    if (!container || !container.elementType) return "";
+    const elementType = container.elementType;
+    const category = containerCategory(container);
+    const external = category === "external-system";
+    const iconKind =
+        category === "ui" || category === "backend" || category === "database";
+    // "Container" alone isn't informative once UI/backend/DB are split out -
+    // show the detected kind instead (database keeps "Database" either way).
+    const label = external
+        ? /extern/i.test(elementType)
+            ? elementType
+            : elementType + " (ext)"
+        : iconKind
+          ? CATEGORY_LABELS[category]
+          : elementType;
     const color =
-        KNOWN_TYPE_COLORS[key] ||
-        FALLBACK_TYPE_COLORS[hashStr(key) % FALLBACK_TYPE_COLORS.length];
+        CATEGORY_COLORS[category] ||
+        FALLBACK_TYPE_COLORS[
+            hashStr(elementType.trim().toLowerCase()) %
+                FALLBACK_TYPE_COLORS.length
+        ];
     return (
         '<span class="type-badge" style="background: ' +
         color.bg +
         "; color: " +
         color.fg +
-        ';">' +
-        escapeHtml(elementType) +
+        ';"' +
+        (external
+            ? ' title="External software system (detected from the red shape color)"'
+            : "") +
+        ">" +
+        escapeHtml(label) +
         "</span>"
     );
 }
@@ -379,7 +528,7 @@ function renderRelations() {
                 sourceContainer &&
                     sourceContainer.labelSource === "node-name-fallback",
             ) +
-            typeBadgeHtml(sourceContainer && sourceContainer.elementType);
+            typeBadgeHtml(sourceContainer);
 
         const connector = document.createElement("div");
         connector.className = "relation-connector";
@@ -415,7 +564,7 @@ function renderRelations() {
                 targetContainer &&
                     targetContainer.labelSource === "node-name-fallback",
             ) +
-            typeBadgeHtml(targetContainer && targetContainer.elementType);
+            typeBadgeHtml(targetContainer);
 
         const locateBtn = document.createElement("button");
         locateBtn.className = "icon-btn locate-corner";
@@ -464,7 +613,7 @@ function renderEndpointCard(role, nodeId, fallbackName) {
         escapeHtml(name) +
         "</span>" +
         (container ? fallbackWarningHtml(isFallback) : "") +
-        (container ? typeBadgeHtml(container.elementType) : "");
+        typeBadgeHtml(container);
 
     const roleEl = document.createElement("div");
     roleEl.className = "endpoint-role";
@@ -582,7 +731,7 @@ function containerRelationRow(relation, direction) {
         '<div class="cd-relation-endpoint"><span class="name">' +
         escapeHtml(name) +
         "</span>" +
-        typeBadgeHtml(otherContainer && otherContainer.elementType) +
+        typeBadgeHtml(otherContainer) +
         "</div>" +
         '<div class="cd-relation-meta">' +
         labelPart +
@@ -664,8 +813,14 @@ function hideContainerDetail() {
 // Selects a container in the Containers tab (switching to it if needed),
 // scrolls its card into view and opens its incoming/outgoing detail panel.
 function openContainerInList(containerId, scroll) {
-    if (!findContainer(containerId)) return;
+    const container = findContainer(containerId);
+    if (!container) return;
     selectedContainerId = containerId;
+    // Make sure the active type chip doesn't hide the card we're opening.
+    const category = containerCategory(container);
+    if (typeFilter !== "all" && typeFilter !== category) {
+        typeFilter = category;
+    }
     showTab("containers");
     renderContainers();
     if (scroll) {

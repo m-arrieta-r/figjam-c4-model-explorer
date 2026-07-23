@@ -1,5 +1,7 @@
 figma.showUI(__html__, { width: 480, height: 640, themeColors: true });
 
+type ContainerKind = "ui" | "backend" | "database" | null;
+
 interface Container {
   id: string;
   name: string;
@@ -8,6 +10,8 @@ interface Container {
   elementType: string | null;
   technology: string | null;
   description: string | null;
+  fillColor: string | null;
+  containerKind: ContainerKind;
 }
 
 interface Relation {
@@ -241,6 +245,81 @@ function extractContainerDetails(node: BaseNode | null): ContainerDetails {
   };
 }
 
+function rgbToHex(r: number, g: number, b: number): string {
+  const to = (v: number) =>
+    Math.round(v * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return "#" + to(r) + to(g) + to(b);
+}
+
+// First visible, non-near-white solid paint in a fills/strokes array.
+// Near-white fills are card backgrounds, not the C4 accent color that
+// distinguishes element kinds (e.g. red external system vs orange internal).
+function firstSolidHex(paints: unknown): string | null {
+  if (!Array.isArray(paints)) return null;
+  for (const paint of paints as Paint[]) {
+    if (paint.type !== "SOLID" || paint.visible === false) continue;
+    if ((paint.opacity !== undefined ? paint.opacity : 1) < 0.05) continue;
+    const { r, g, b } = paint.color;
+    if (r > 0.95 && g > 0.95 && b > 0.95) continue;
+    return rgbToHex(r, g, b);
+  }
+  return null;
+}
+
+function findPaintHex(node: BaseNode, prop: "fills" | "strokes"): string | null {
+  if (node.type === "TEXT") return null;
+  const own = firstSolidHex(
+    (node as unknown as Record<string, unknown>)[prop],
+  );
+  if (own) return own;
+  if ("children" in node) {
+    for (const child of (node as ChildrenMixin).children) {
+      const hex = findPaintHex(child, prop);
+      if (hex) return hex;
+    }
+  }
+  return null;
+}
+
+// The shape's dominant color: first meaningful fill anywhere in the subtree,
+// falling back to strokes (for outline-only shapes). Used by the UI to tell
+// C4 variants apart that share the same bracket annotation - e.g. external
+// software systems (red) vs internal ones (orange).
+function extractFillColor(node: BaseNode | null): string | null {
+  if (!node) return null;
+  const byFill = findPaintHex(node, "fills");
+  return byFill !== null ? byFill : findPaintHex(node, "strokes");
+}
+
+// Detects the small icon badge this C4 shape kit draws inside a container's
+// own direct children, distinguishing UI/backend/database containers that
+// all carry the same "[Container: ...]" annotation and so look identical by
+// text alone: a row of unnamed ELLIPSE nodes forming a "traffic light"
+// browser icon (UI), a literal ">_" TEXT glyph (backend/service), or a
+// top+bottom ELLIPSE pair with RECTANGLE nodes between them forming a
+// cylinder body (database). "Magnet" nodes are connector attachment points,
+// not icon geometry, and are excluded before counting.
+function extractContainerKind(node: BaseNode | null): ContainerKind {
+  if (!node || !("children" in node)) return null;
+  const children = (node as ChildrenMixin).children.filter(
+    (c) => c.name !== "Magnet",
+  );
+
+  const hasBackendMarker = children.some(
+    (c) =>
+      c.type === "TEXT" &&
+      (c.name.trim() === ">_" || c.characters.trim() === ">_"),
+  );
+  if (hasBackendMarker) return "backend";
+
+  const ellipseCount = children.filter((c) => c.type === "ELLIPSE").length;
+  if (ellipseCount >= 3) return "ui";
+  if (ellipseCount === 2) return "database";
+  return null;
+}
+
 // Container ids from the last extraction. Used by the selectionchange
 // listener to tell "user selected a C4 container on the canvas" apart from
 // selecting any other random node.
@@ -297,6 +376,8 @@ function extractRelations(): ExtractResult {
         elementType: sourceDetails.elementType,
         technology: sourceDetails.technology,
         description: sourceDetails.description,
+        fillColor: extractFillColor(sourceNode),
+        containerKind: extractContainerKind(sourceNode),
       });
     }
     if (!containerMap.has(targetId)) {
@@ -308,6 +389,8 @@ function extractRelations(): ExtractResult {
         elementType: targetDetails.elementType,
         technology: targetDetails.technology,
         description: targetDetails.description,
+        fillColor: extractFillColor(targetNode),
+        containerKind: extractContainerKind(targetNode),
       });
     }
 
