@@ -179,6 +179,16 @@ for how these get combined into `dist/ui.html` at build time.
   `toLikeC4Dsl()` (`export-likec4.js`), both built from the same
   `buildIdMap()`/`slugify()` in `export-shared.js` (stable, collision-free
   per-container identifiers reused across both formats).
+- `toLikeC4Dsl()`'s `likeC4KindFor()` maps each container to its LikeC4
+  `element` kind via `containerCategory()` (`export-shared.js` — the same
+  function the Containers tab's type filter uses), not raw `elementType`
+  text. This matters because icon-detected `ui`/`backend`/`database`
+  containers and color-detected external systems all carry a generic
+  `elementType` (e.g. `"[Container: ...]"`) that can't tell them apart on its
+  own — see the categorization writeup above. Any new category added to
+  `containerCategory` needs a matching entry in `CATEGORY_TO_LIKEC4_KIND`
+  (`export-likec4.js`) or it silently falls back to a camelCased version of
+  the raw `elementType`.
 
 ## Relaunch button (canvas → plugin)
 

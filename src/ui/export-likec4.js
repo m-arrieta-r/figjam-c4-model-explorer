@@ -1,14 +1,17 @@
-const LIKEC4_KNOWN_KINDS = {
+const CATEGORY_TO_LIKEC4_KIND = {
     person: "person",
-    "software system": "softwareSystem",
-    "external system": "externalSystem",
+    "software-system": "softwareSystem",
+    "external-system": "externalSystem",
+    ui: "ui",
+    backend: "backend",
+    database: "database",
     container: "container",
     component: "component",
-    database: "database",
 };
 
 // Turns an arbitrary element-type string (e.g. "Message Queue") into a
-// valid LikeC4 kind identifier ("messageQueue").
+// valid LikeC4 kind identifier ("messageQueue"). Only reached for
+// containers whose category doesn't map to a known C4 kind.
 function toCamelIdentifier(raw, fallback) {
     const words = raw
         .toLowerCase()
@@ -26,10 +29,18 @@ function toCamelIdentifier(raw, fallback) {
     );
 }
 
+// Reuses the same categorization the Containers tab's type filter uses (see
+// containerCategory in export-shared.js) so icon-detected databases and
+// color-detected external systems export as `database`/`externalSystem`
+// instead of collapsing into the generic `container` kind carried by their
+// raw elementType text (this shape kit labels every non-Person/System
+// container "[Container: ...]" regardless of what it actually is).
 function likeC4KindFor(container) {
-    const raw = (container.elementType || "").trim().toLowerCase();
-    if (!raw) return "component";
-    return LIKEC4_KNOWN_KINDS[raw] || toCamelIdentifier(raw, "component");
+    const category = containerCategory(container);
+    const known = CATEGORY_TO_LIKEC4_KIND[category];
+    if (known) return known;
+    const raw = (container.elementType || "").trim();
+    return raw ? toCamelIdentifier(raw, "component") : "component";
 }
 
 function toLikeC4Dsl(containers, relations) {

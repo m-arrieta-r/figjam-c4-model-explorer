@@ -66,14 +66,6 @@ formatButtons.forEach((btn) => {
     };
 });
 
-var DIACRITIC_RE = new RegExp("[̀-ͯ]", "g");
-function normalizeSearch(str) {
-    return String(str || "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(DIACRITIC_RE, "");
-}
-
 function matchesSearch(fields) {
     const query = normalizeSearch(searchQuery).trim();
     if (!query) return true;
@@ -341,53 +333,6 @@ function hashStr(str) {
     return Math.abs(h);
 }
 
-function hexHueSat(hex) {
-    const m = /^#([0-9a-f]{6})$/i.exec(hex || "");
-    if (!m) return null;
-    const num = parseInt(m[1], 16);
-    const r = ((num >> 16) & 255) / 255;
-    const g = ((num >> 8) & 255) / 255;
-    const b = (num & 255) / 255;
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const d = max - min;
-    const sat = max === 0 ? 0 : d / max;
-    let hue = 0;
-    if (d > 0) {
-        if (max === r) hue = ((g - b) / d) % 6;
-        else if (max === g) hue = (b - r) / d + 2;
-        else hue = (r - g) / d + 4;
-        hue = (hue * 60 + 360) % 360;
-    }
-    return { hue: hue, sat: sat };
-}
-
-// Red shapes mark external software systems on the canvas (internal ones are
-// orange); hue splits them at ~20° so oranges don't classify as red.
-function isRedFill(fillColor) {
-    const hs = hexHueSat(fillColor);
-    return !!hs && hs.sat > 0.25 && (hs.hue >= 335 || hs.hue <= 20);
-}
-
-function containerCategory(c) {
-    const type = normalizeSearch(c.elementType || "");
-    if (/person|persona|actor|user|usuario/.test(type)) return "person";
-    if (/system|sistema/.test(type)) {
-        const external = /extern|\bext\b/.test(type) || isRedFill(c.fillColor);
-        return external ? "external-system" : "software-system";
-    }
-    // Everything below (Container/Component/no element type) may carry an
-    // icon-based kind detected from the shape's own children - see
-    // extractContainerKind in code.ts. Prefer that over keyword guessing.
-    if (c.containerKind === "ui") return "ui";
-    if (c.containerKind === "backend") return "backend";
-    if (c.containerKind === "database") return "database";
-    if (/database|base de datos|\bdb\b/.test(type)) return "database";
-    if (/component|componente/.test(type)) return "component";
-    if (/container|contenedor/.test(type)) return "container";
-    if (!type) return "other";
-    return "other";
-}
 
 function typeBadgeHtml(container) {
     if (!container || !container.elementType) return "";
