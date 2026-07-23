@@ -20,12 +20,14 @@ const typeFilterEl = document.getElementById("type-filter");
 const searchInputEl = document.getElementById("search-input");
 const searchClearEl = document.getElementById("search-clear");
 const formatButtons = document.querySelectorAll(".format-btn");
+const debugModeToggle = document.getElementById("debug-mode-toggle");
 
 const tabButtons = document.querySelectorAll(".tab-btn");
 const tabViews = {
     relations: document.getElementById("relations-view"),
     containers: document.getElementById("containers-view"),
     export: document.getElementById("export-view"),
+    settings: document.getElementById("settings-view"),
 };
 
 function renderExportOutput() {
@@ -43,7 +45,10 @@ function showTab(name) {
     Object.entries(tabViews).forEach(([key, el]) =>
         el.classList.toggle("hidden", key !== name),
     );
-    searchBarEl.classList.toggle("hidden", name === "export");
+    searchBarEl.classList.toggle(
+        "hidden",
+        name === "export" || name === "settings",
+    );
     if (name === "export") {
         renderExportOutput();
     }
@@ -116,6 +121,18 @@ searchClearEl.onclick = () => {
 document.getElementById("refresh").onclick = () => {
     parent.postMessage({ pluginMessage: { type: "extract" } }, "*");
 };
+
+debugModeToggle.addEventListener("change", () => {
+    parent.postMessage(
+        {
+            pluginMessage: {
+                type: "set-debug",
+                enabled: debugModeToggle.checked,
+            },
+        },
+        "*",
+    );
+});
 
 copyBtn.onclick = async () => {
     try {
@@ -914,6 +931,9 @@ function escapeHtml(str) {
 window.onmessage = (event) => {
     const msg = event.data.pluginMessage;
     if (!msg) return;
+    if (msg.type === "settings") {
+        debugModeToggle.checked = !!msg.debugMode;
+    }
     if (msg.type === "relations") {
         currentContainers = msg.containers || [];
         currentRelations = msg.relations || [];

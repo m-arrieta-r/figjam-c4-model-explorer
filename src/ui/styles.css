@@ -605,3 +605,76 @@ textarea {
     background: var(--primary);
     color: #fff;
 }
+
+/* Settings tab */
+.settings-section {
+    margin-bottom: 18px;
+}
+.settings-section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-faint);
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+.settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    cursor: pointer;
+}
+.settings-row-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.settings-row-label {
+    font-size: 12.5px;
+    font-weight: 600;
+}
+.settings-row-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 34px;
+    height: 20px;
+    flex-shrink: 0;
+}
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: #d1d5db;
+    border-radius: 999px;
+    transition: background 0.15s ease;
+}
+.toggle-slider::before {
+    content: "";
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    left: 2px;
+    top: 2px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.15s ease;
+}
+.toggle-switch input:checked + .toggle-slider {
+    background: var(--primary);
+}
+.toggle-switch input:checked + .toggle-slider::before {
+    transform: translateX(14px);
+}

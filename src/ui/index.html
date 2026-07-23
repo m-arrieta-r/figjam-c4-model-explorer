@@ -74,6 +74,7 @@
                     <span class="tab-count" id="container-count">0</span>
                 </button>
                 <button class="tab-btn" data-tab="export">Export</button>
+                <button class="tab-btn" data-tab="settings">Settings</button>
             </div>
 
             <div class="search-bar" id="search-bar">
@@ -143,6 +144,29 @@
                 </div>
                 <textarea id="mermaid-output" readonly></textarea>
                 <div id="copy-status" class="status"></div>
+            </div>
+
+            <div id="settings-view" class="tab-view hidden">
+                <div class="settings-section">
+                    <div class="settings-section-title">General</div>
+                    <label class="settings-row" for="debug-mode-toggle">
+                        <span class="settings-row-text">
+                            <span class="settings-row-label"
+                                >Debug mode</span
+                            >
+                            <span class="settings-row-hint"
+                                >Logs detailed extraction info to the
+                                plugin console (Figma &rarr; Plugins &rarr;
+                                Development &rarr; Show/Open Console). Off
+                                by default.</span
+                            >
+                        </span>
+                        <span class="toggle-switch">
+                            <input type="checkbox" id="debug-mode-toggle" />
+                            <span class="toggle-slider"></span>
+                        </span>
+                    </label>
+                </div>
             </div>
         </div>
 

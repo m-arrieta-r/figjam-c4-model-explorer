@@ -1,5 +1,18 @@
 figma.showUI(__html__, { width: 480, height: 640, themeColors: true });
 
+// Debug mode is off by default and only toggled on from the UI's Settings
+// tab; persisted via clientStorage so it survives across plugin re-launches.
+let debugMode = false;
+const debugModeLoaded: Promise<void> = figma.clientStorage
+  .getAsync("debugMode")
+  .then((value) => {
+    debugMode = value === true;
+  });
+
+function debugLog(...args: unknown[]): void {
+  if (debugMode) console.log(...args);
+}
+
 type ContainerKind = "ui" | "backend" | "database" | null;
 
 interface Container {
@@ -333,7 +346,7 @@ function extractRelations(): ExtractResult {
   const relations: Relation[] = [];
   let skipped = 0;
 
-  console.log(
+  debugLog(
     `[extract-c4] found ${connectors.length} connector(s) on page "${figma.currentPage.name}"`,
   );
 
@@ -348,7 +361,7 @@ function extractRelations(): ExtractResult {
       !("endpointNodeId" in end)
     ) {
       skipped++;
-      console.log(
+      debugLog(
         `[extract-c4] skipping connector ${connector.id}: not attached to a node on both ends`,
       );
       continue;
@@ -361,7 +374,7 @@ function extractRelations(): ExtractResult {
     const sourceDetails = extractContainerDetails(sourceNode);
     const targetDetails = extractContainerDetails(targetNode);
 
-    console.log(
+    debugLog(
       `[extract-c4] connector ${connector.id}: ` +
         `${sourceNode?.type ?? "null"}#${sourceId} "${sourceDetails.name}" (${sourceDetails.nameSource}) -> ` +
         `${targetNode?.type ?? "null"}#${targetId} "${targetDetails.name}" (${targetDetails.nameSource})`,
@@ -441,7 +454,7 @@ function extractRelations(): ExtractResult {
 
   const containers: Container[] = Array.from(containerMap.values());
   knownContainerIds = new Set(containerMap.keys());
-  console.log(
+  debugLog(
     `[extract-c4] resolved ${containers.length} container(s), skipped ${skipped} connector(s)`,
     containers,
   );
@@ -583,12 +596,12 @@ function focusNode(id: string) {
   const node = figma.getNodeById(id);
 
   if (node) {
-    console.log(
+    debugLog(
       `[extract-c4] focusNode(${id}) tree (copy this to debug the label extraction):\n` +
         JSON.stringify(summarizeNode(node), null, 2),
     );
   } else {
-    console.log(`[extract-c4] focusNode(${id}): getNodeById returned null`);
+    debugLog(`[extract-c4] focusNode(${id}): getNodeById returned null`);
   }
 
   if (!node) {
@@ -615,7 +628,7 @@ function focusNode(id: string) {
   const removed = "removed" in sceneNode ? sceneNode.removed : undefined;
   const page = sceneNode.parent ? findPage(sceneNode) : null;
 
-  console.log("[extract-c4] focusNode resolved node", {
+  debugLog("[extract-c4] focusNode resolved node", {
     id: sceneNode.id,
     type: sceneNode.type,
     name: sceneNode.name,
@@ -634,7 +647,7 @@ function focusNode(id: string) {
 
   try {
     if (page && page.id !== figma.currentPage.id) {
-      console.log(
+      debugLog(
         `[extract-c4] focusNode(${id}): node lives on a different page ("${page.name}"), switching`,
       );
       figma.currentPage = page;
@@ -659,8 +672,12 @@ function findPage(node: BaseNode): PageNode | null {
   return null;
 }
 
-figma.ui.onmessage = (msg: { type: string; id?: string }) => {
+figma.ui.onmessage = async (
+  msg: { type: string; id?: string; enabled?: boolean },
+) => {
   if (msg.type === "ui-ready") {
+    await debugModeLoaded;
+    figma.ui.postMessage({ type: "settings", debugMode });
     const focusRelationId =
       figma.command === "view-relation" ? getSelectedConnectorId() : null;
     const focusContainerId =
@@ -672,6 +689,10 @@ figma.ui.onmessage = (msg: { type: string; id?: string }) => {
   }
   if (msg.type === "focus" && msg.id) {
     focusNode(msg.id);
+  }
+  if (msg.type === "set-debug") {
+    debugMode = !!msg.enabled;
+    figma.clientStorage.setAsync("debugMode", debugMode);
   }
   if (msg.type === "close") {
     figma.closePlugin();
