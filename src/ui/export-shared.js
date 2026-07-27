@@ -61,6 +61,14 @@ function isRedFill(fillColor) {
     return !!hs && hs.sat > 0.25 && (hs.hue >= 335 || hs.hue <= 20);
 }
 
+// Indigo/purple shapes mark AI agents on the canvas (plain human actors are
+// left at the shape kit's default fill), mirroring how isRedFill marks
+// external systems.
+function isIndigoFill(fillColor) {
+    const hs = hexHueSat(fillColor);
+    return !!hs && hs.sat > 0.25 && hs.hue >= 220 && hs.hue <= 280;
+}
+
 // Groups a container by C4 element kind, shared by the Containers tab's type
 // filter and both exporters so they never disagree on what a container is.
 // "ui"/"backend"/"database" come from the shape's detected icon
@@ -69,7 +77,11 @@ function isRedFill(fillColor) {
 // - that text alone can't tell a frontend, a service and a database apart.
 function containerCategory(c) {
     const type = normalizeSearch(c.elementType || "");
-    if (/person|persona|actor|user|usuario/.test(type)) return "person";
+    const isPersonShape = /person|persona|actor|user|usuario/.test(type);
+    const isAgentText = /\bagente?\b/.test(type);
+    if (isPersonShape || isAgentText) {
+        return isAgentText || isIndigoFill(c.fillColor) ? "agent" : "person";
+    }
     if (/system|sistema/.test(type)) {
         const external = /extern|\bext\b/.test(type) || isRedFill(c.fillColor);
         return external ? "external-system" : "software-system";

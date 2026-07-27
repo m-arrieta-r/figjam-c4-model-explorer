@@ -1,5 +1,6 @@
 const CATEGORY_TO_LIKEC4_KIND = {
     person: "person",
+    agent: "agent",
     "software-system": "softwareSystem",
     "external-system": "externalSystem",
     ui: "ui",
@@ -7,6 +8,22 @@ const CATEGORY_TO_LIKEC4_KIND = {
     database: "database",
     container: "container",
     component: "component",
+};
+
+// Default LikeC4 style per element kind, so the generated specification
+// renders each C4 kind distinctly instead of relying on LikeC4's own
+// defaults. Kinds not listed here (component, and any ad-hoc kind derived
+// from an unrecognized elementType via toCamelIdentifier) are declared with
+// no style block and fall back to LikeC4's defaults.
+const LIKEC4_KIND_STYLE = {
+    person: { shape: "person", color: "green" },
+    agent: { shape: "person", color: "green" },
+    softwareSystem: { shape: "rectangle", color: "amber" },
+    externalSystem: { shape: "rectangle", color: "red" },
+    ui: { shape: "browser", color: "sky" },
+    backend: { shape: "rectangle", color: "blue" },
+    database: { shape: "cylinder", color: "indigo" },
+    container: { shape: "rectangle", color: "muted" },
 };
 
 // Turns an arbitrary element-type string (e.g. "Message Queue") into a
@@ -49,7 +66,19 @@ function toLikeC4Dsl(containers, relations) {
     const kindsUsed = Array.from(new Set(kindFor.values())).sort();
 
     const lines = ["specification {"];
-    kindsUsed.forEach((k) => lines.push("  element " + k));
+    kindsUsed.forEach((k) => {
+        const style = LIKEC4_KIND_STYLE[k];
+        if (!style) {
+            lines.push("  element " + k);
+            return;
+        }
+        lines.push("  element " + k + " {");
+        lines.push("    style {");
+        lines.push("      shape " + style.shape);
+        lines.push("      color " + style.color);
+        lines.push("    }");
+        lines.push("  }");
+    });
     lines.push("}", "", "model {");
 
     containers.forEach((c) => {

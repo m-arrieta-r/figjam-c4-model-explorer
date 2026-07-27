@@ -288,6 +288,7 @@ function renderContainers() {
 // type and can't be told apart from that text alone.
 const CATEGORY_ORDER = [
     "person",
+    "agent",
     "software-system",
     "external-system",
     "ui",
@@ -299,6 +300,7 @@ const CATEGORY_ORDER = [
 ];
 const CATEGORY_LABELS = {
     person: "Person",
+    agent: "Agent",
     "software-system": "System",
     "external-system": "Ext. System",
     ui: "UI",
@@ -310,6 +312,7 @@ const CATEGORY_LABELS = {
 };
 const CATEGORY_COLORS = {
     person: { bg: "#f3e8ff", fg: "#7c3aed" },
+    agent: { bg: "#e0e0fd", fg: "#4338ca" },
     "software-system": { bg: "#fff1e0", fg: "#c2410c" },
     "external-system": { bg: "#fde3e3", fg: "#c2273f" },
     ui: { bg: "#e0f2fe", fg: "#0369a1" },
@@ -339,6 +342,7 @@ function typeBadgeHtml(container) {
     const elementType = container.elementType;
     const category = containerCategory(container);
     const external = category === "external-system";
+    const agent = category === "agent";
     const iconKind =
         category === "ui" || category === "backend" || category === "database";
     // "Container" alone isn't informative once UI/backend/DB are split out -
@@ -347,9 +351,13 @@ function typeBadgeHtml(container) {
         ? /extern/i.test(elementType)
             ? elementType
             : elementType + " (ext)"
-        : iconKind
-          ? CATEGORY_LABELS[category]
-          : elementType;
+        : agent
+          ? /agente?/i.test(elementType)
+              ? elementType
+              : elementType + " (agent)"
+          : iconKind
+            ? CATEGORY_LABELS[category]
+            : elementType;
     const color =
         CATEGORY_COLORS[category] ||
         FALLBACK_TYPE_COLORS[
@@ -364,7 +372,9 @@ function typeBadgeHtml(container) {
         ';"' +
         (external
             ? ' title="External software system (detected from the red shape color)"'
-            : "") +
+            : agent
+              ? ' title="AI agent (detected from \'agente\'/\'agent\' text or the indigo shape color)"'
+              : "") +
         ">" +
         escapeHtml(label) +
         "</span>"
