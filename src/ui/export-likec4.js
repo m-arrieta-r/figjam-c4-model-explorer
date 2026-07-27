@@ -69,19 +69,23 @@ function toLikeC4Dsl(containers, relations) {
     });
 
     lines.push("");
+    // LikeC4 relationships are always directional, so a bidirectional
+    // connector is represented as a pair of opposing relationships.
     relations.forEach((r) => {
         const s = idMap.get(r.source);
         const t = idMap.get(r.target);
         if (!s || !t) return;
-        if (r.technology) {
-            const relLabel = r.label ? ' "' + esc(r.label) + '"' : "";
-            lines.push("  " + s + " -> " + t + relLabel + " {");
-            lines.push('    technology "' + esc(r.technology) + '"');
-            lines.push("  }");
-        } else {
-            const relLabel = r.label ? ' "' + esc(r.label) + '"' : "";
-            lines.push("  " + s + " -> " + t + relLabel);
-        }
+        const relLabel = r.label ? ' "' + esc(r.label) + '"' : "";
+        const pairs = r.bidirectional ? [[s, t], [t, s]] : [[s, t]];
+        pairs.forEach(([from, to]) => {
+            if (r.technology) {
+                lines.push("  " + from + " -> " + to + relLabel + " {");
+                lines.push('    technology "' + esc(r.technology) + '"');
+                lines.push("  }");
+            } else {
+                lines.push("  " + from + " -> " + to + relLabel);
+            }
+        });
     });
 
     lines.push(

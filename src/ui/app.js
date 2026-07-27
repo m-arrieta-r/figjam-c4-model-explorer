@@ -399,6 +399,12 @@ const DOWN_ARROW_SVG =
     '<path d="M12 4v14M6 13l6 6 6-6"></path>' +
     "</svg>";
 
+const UP_DOWN_ARROW_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4"></path>' +
+    "</svg>";
+
 const OUT_ARROW_SVG =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
     'stroke-linecap="round" stroke-linejoin="round">' +
@@ -409,6 +415,12 @@ const IN_ARROW_SVG =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
     'stroke-linecap="round" stroke-linejoin="round">' +
     '<path d="M20 12H6M11 6l-6 6 6 6"></path>' +
+    "</svg>";
+
+const BOTH_ARROW_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M4 12h16M7 6L4 12l3 6M17 6l3 6-3 6"></path>' +
     "</svg>";
 
 containersEl.addEventListener("click", (event) => {
@@ -493,7 +505,8 @@ function renderRelations() {
             typeBadgeHtml(sourceContainer);
 
         const connector = document.createElement("div");
-        connector.className = "relation-connector";
+        connector.className =
+            "relation-connector" + (r.bidirectional ? " bidirectional" : "");
         const labelPart = r.label
             ? escapeHtml(r.label)
             : r.technology
@@ -505,7 +518,7 @@ function renderRelations() {
               "</span>"
             : "";
         connector.innerHTML =
-            DOWN_ARROW_SVG +
+            (r.bidirectional ? UP_DOWN_ARROW_SVG : DOWN_ARROW_SVG) +
             (labelPart
                 ? '<span class="relation-label">' + labelPart + "</span>"
                 : "") +
@@ -620,6 +633,9 @@ function renderRelationDetail(relationId) {
     header.innerHTML =
         '<span class="label-text">' +
         detailLabelText +
+        (relation.bidirectional
+            ? ' <span class="relation-bidirectional-badge">bidirectional</span>'
+            : "") +
         "</span>" +
         '<button class="relation-detail-close" title="Close">&times;</button>';
     relationDetailEl.appendChild(header);
@@ -653,12 +669,26 @@ function hideRelationDetail() {
     relationDetailEl.innerHTML = "";
 }
 
-function containerRelationRow(relation, direction) {
-    const otherId = direction === "out" ? relation.target : relation.source;
-    const otherName =
-        direction === "out" ? relation.targetName : relation.sourceName;
+function containerRelationRow(relation, containerId) {
+    // Which side is "other" depends on the container being viewed, not on
+    // which list (Outgoing/Incoming) the row happens to render in — a
+    // bidirectional relation appears in both lists for the same container.
+    const isSource = relation.source === containerId;
+    const otherId = isSource ? relation.target : relation.source;
+    const otherName = isSource ? relation.targetName : relation.sourceName;
     const otherContainer = findContainer(otherId);
     const name = otherContainer ? otherContainer.name : otherName;
+    const arrowDirection = relation.bidirectional
+        ? "both"
+        : isSource
+          ? "out"
+          : "in";
+    const arrowSvg =
+        arrowDirection === "both"
+            ? BOTH_ARROW_SVG
+            : arrowDirection === "out"
+              ? OUT_ARROW_SVG
+              : IN_ARROW_SVG;
 
     const row = document.createElement("div");
     row.className = "cd-relation-row";
@@ -685,9 +715,9 @@ function containerRelationRow(relation, direction) {
         LOCATE_ICON_SVG +
         "</button>" +
         '<span class="cd-relation-arrow ' +
-        (direction === "out" ? "out" : "in") +
+        arrowDirection +
         '">' +
-        (direction === "out" ? OUT_ARROW_SVG : IN_ARROW_SVG) +
+        arrowSvg +
         "</span>" +
         '<div class="cd-relation-info">' +
         '<div class="cd-relation-endpoint"><span class="name">' +
@@ -703,7 +733,7 @@ function containerRelationRow(relation, direction) {
     return row;
 }
 
-function containerRelationSection(title, relations, direction) {
+function containerRelationSection(title, relations, containerId) {
     const section = document.createElement("div");
     section.className = "cd-section";
     const heading = document.createElement("div");
@@ -718,7 +748,7 @@ function containerRelationSection(title, relations, direction) {
         return section;
     }
     relations.forEach((r) =>
-        section.appendChild(containerRelationRow(r, direction)),
+        section.appendChild(containerRelationRow(r, containerId)),
     );
     return section;
 }
@@ -729,8 +759,18 @@ function renderContainerDetail(containerId) {
         hideContainerDetail();
         return;
     }
-    const outgoing = currentRelations.filter((r) => r.source === containerId);
-    const incoming = currentRelations.filter((r) => r.target === containerId);
+    // A bidirectional relation flows both ways, so it belongs in both the
+    // Outgoing and Incoming lists for either endpoint container.
+    const outgoing = currentRelations.filter(
+        (r) =>
+            r.source === containerId ||
+            (r.bidirectional && r.target === containerId),
+    );
+    const incoming = currentRelations.filter(
+        (r) =>
+            r.target === containerId ||
+            (r.bidirectional && r.source === containerId),
+    );
 
     containerDetailEl.innerHTML = "";
 
@@ -751,10 +791,10 @@ function renderContainerDetail(containerId) {
     };
 
     containerDetailEl.appendChild(
-        containerRelationSection("Outgoing", outgoing, "out"),
+        containerRelationSection("Outgoing", outgoing, containerId),
     );
     containerDetailEl.appendChild(
-        containerRelationSection("Incoming", incoming, "in"),
+        containerRelationSection("Incoming", incoming, containerId),
     );
 
     const card = containersEl.querySelector(

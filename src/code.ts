@@ -35,6 +35,7 @@ interface Relation {
   targetName: string;
   label: string;
   technology: string | null;
+  bidirectional: boolean;
 }
 
 interface ExtractResult {
@@ -338,6 +339,13 @@ function extractContainerKind(node: BaseNode | null): ContainerKind {
 // selecting any other random node.
 let knownContainerIds = new Set<string>();
 
+// FigJam connectors don't carry an explicit "direction" property — direction
+// is implied by which end(s) have an arrowhead (stroke cap). A plain "NONE"
+// cap means that end has no arrowhead.
+function hasArrowhead(cap: ConnectorStrokeCap): boolean {
+  return cap !== "NONE";
+}
+
 function extractRelations(): ExtractResult {
   const connectors = figma.currentPage.findAllWithCriteria({
     types: ["CONNECTOR"],
@@ -367,8 +375,16 @@ function extractRelations(): ExtractResult {
       continue;
     }
 
-    const sourceId = start.endpointNodeId;
-    const targetId = end.endpointNodeId;
+    // Default assumption is start -> end, but a connector drawn "backwards"
+    // (arrowhead only on the start endpoint) actually points end -> start,
+    // and a connector with arrowheads on both ends is bidirectional.
+    const startHasArrow = hasArrowhead(connector.connectorStartStrokeCap);
+    const endHasArrow = hasArrowhead(connector.connectorEndStrokeCap);
+    const reversed = startHasArrow && !endHasArrow;
+    const bidirectional = startHasArrow && endHasArrow;
+
+    const sourceId = reversed ? end.endpointNodeId : start.endpointNodeId;
+    const targetId = reversed ? start.endpointNodeId : end.endpointNodeId;
     const sourceNode = figma.getNodeById(sourceId);
     const targetNode = figma.getNodeById(targetId);
     const sourceDetails = extractContainerDetails(sourceNode);
@@ -377,7 +393,9 @@ function extractRelations(): ExtractResult {
     debugLog(
       `[extract-c4] connector ${connector.id}: ` +
         `${sourceNode?.type ?? "null"}#${sourceId} "${sourceDetails.name}" (${sourceDetails.nameSource}) -> ` +
-        `${targetNode?.type ?? "null"}#${targetId} "${targetDetails.name}" (${targetDetails.nameSource})`,
+        `${targetNode?.type ?? "null"}#${targetId} "${targetDetails.name}" (${targetDetails.nameSource})` +
+        (reversed ? " [reversed arrowhead]" : "") +
+        (bidirectional ? " [bidirectional]" : ""),
     );
 
     if (!containerMap.has(sourceId)) {
@@ -442,6 +460,7 @@ function extractRelations(): ExtractResult {
       targetName: targetDetails.name,
       label,
       technology: relationTechnology,
+      bidirectional,
     });
 
     // Lets the user select this connector on the canvas and relaunch the

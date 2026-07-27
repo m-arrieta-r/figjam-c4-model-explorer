@@ -383,6 +383,20 @@ button.primary:hover {
     padding: 4px 0 4px 2px;
     color: var(--text-faint);
 }
+.relation-connector.bidirectional {
+    color: #3a72e0;
+}
+.relation-bidirectional-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    color: #3a72e0;
+    background: #eaf0fd;
+    border: 1px solid #c7d7fb;
+    border-radius: 10px;
+    padding: 1px 7px;
+    white-space: nowrap;
+}
 .relation-connector svg {
     width: 13px;
     height: 13px;
@@ -527,6 +541,9 @@ button.primary:hover {
 }
 .cd-relation-arrow.in {
     color: #b56a00;
+}
+.cd-relation-arrow.both {
+    color: #3a72e0;
 }
 .cd-relation-arrow svg {
     width: 13px;
