@@ -1,8 +1,20 @@
-function toMermaidC4(containers, relations) {
-    const idMap = buildIdMap(containers);
+// Picks the Mermaid C4 boundary macro from the boundary label's own bracket
+// annotation (e.g. "Wink [Software System]"), mirroring how containers'
+// elementType text already drives categorization elsewhere - falls back to
+// Container_Boundary, the most generic of the three, when the label carries
+// no recognizable type.
+function mermaidBoundaryMacro(boundary) {
+    const type = normalizeSearch(boundary.elementType || "");
+    if (/enterprise/.test(type)) return "Enterprise_Boundary";
+    if (/system|sistema/.test(type)) return "System_Boundary";
+    return "Container_Boundary";
+}
 
-    const lines = ["C4Container", ""];
-    containers.forEach((c) => {
+function toMermaidC4(containers, relations, boundaries) {
+    const idMap = buildIdMap(containers, boundaries);
+    const { groups, ungrouped } = groupByBoundary(containers, boundaries);
+
+    function containerLine(c) {
         const id = idMap.get(c.id);
         const args = ['"' + esc(c.name) + '"'];
         if (c.description) {
@@ -13,8 +25,19 @@ function toMermaidC4(containers, relations) {
         } else if (c.technology) {
             args.push('"' + esc(c.technology) + '"');
         }
-        lines.push("Container(" + id + ", " + args.join(", ") + ")");
+        return "Container(" + id + ", " + args.join(", ") + ")";
+    }
+
+    const lines = ["C4Container", ""];
+    groups.forEach(({ boundary, containers: grouped }) => {
+        const macro = mermaidBoundaryMacro(boundary);
+        lines.push(
+            macro + "(" + idMap.get(boundary.id) + ', "' + esc(boundary.name) + '") {',
+        );
+        grouped.forEach((c) => lines.push("  " + containerLine(c)));
+        lines.push("}");
     });
+    ungrouped.forEach((c) => lines.push(containerLine(c)));
     lines.push("");
     relations.forEach((r) => {
         const s = idMap.get(r.source);

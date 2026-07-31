@@ -46,7 +46,7 @@ Message protocol between the two (informal, not typed across the boundary):
 | UI → plugin | `extract` | — | Re-run extraction (Refresh button). |
 | UI → plugin | `focus` | `id` | Select + zoom to a node on the canvas. |
 | UI → plugin | `close` | — | Close the plugin. |
-| plugin → UI | `relations` | `containers`, `relations`, `skipped`, `focusRelationId`, `focusContainerId` | Extraction result. `focusRelationId` / `focusContainerId` are non-null only when launched via the corresponding relaunch button (see below). |
+| plugin → UI | `relations` | `containers`, `relations`, `boundaries`, `skipped`, `focusRelationId`, `focusContainerId` | Extraction result. `focusRelationId` / `focusContainerId` are non-null only when launched via the corresponding relaunch button (see below). |
 | plugin → UI | `container-selected` | `id` | Sent by the `selectionchange` listener when the user selects exactly one node on the canvas whose id is a known container (from the last extraction). The UI switches to the Containers tab, selects that card and opens its incoming/outgoing detail panel. Programmatic selections made by `focusNode` are suppressed via `lastProgrammaticSelectionId` so clicking a locate icon in the UI doesn't bounce the panel to the Containers tab — keep that suppression if you touch selection code. |
 
 ### Startup race — do not reintroduce
@@ -105,6 +105,45 @@ in the UI — `focusNode()` in `code.ts` logs the full node subtree as JSON to
 the plugin console (Figma → Plugins → Development → Open Console). That JSON
 is the fastest way to see why a shape isn't parsing the way you'd expect —
 ask for it before guessing at a fix.
+
+## Boundary detection (System/Container Boundary boxes)
+
+Some boards draw a big box around a cluster of containers — the C4 "System
+Boundary" convention — with its own label sitting near the box's
+bottom-left corner (e.g. `"Wink [Software System]"`, same
+`"Name [Annotation]"` style as container labels). `findContainerBoundary(node,
+endpointIds)` in `code.ts` detects this and sets `boundaryId` on each
+enclosed `Container`; unique boundaries are collected into
+`ExtractResult.boundaries` (`{ id, name, elementType }`).
+
+Two things make this geometric rather than tree-based, unlike the container
+text extraction above:
+
+- The box and the container(s) it encloses are **flat siblings**, not
+  parent/child — commonly all children of one giant top-level FigJam
+  `SECTION` covering the whole board. So detection walks `node.parent.children`
+  looking for the smallest sibling (of type `RECTANGLE`/`SHAPE_WITH_TEXT`/
+  `FRAME`/`GROUP`/`SECTION`, excluding other connector endpoints via
+  `endpointIds`) whose `absoluteBoundingBox` fully contains the container's
+  own box (`containsBox`/`boxArea`).
+- The box's label usually isn't its own `.text` (the observed case: a
+  `SHAPE_WITH_TEXT` with `.text.characters === ""`) — it's a separate `TEXT`
+  node, also a flat sibling, positioned near the box's bottom-left corner.
+  `findBoundaryLabelText` checks the box's own text first, then falls back to
+  the nearest sibling `TEXT` within `CORNER_LABEL_MARGIN_FRACTION` (20%) of
+  the box's width/height from that corner. `parseBoundaryLabel` then splits
+  `"Name [Annotation]"` the same way `splitTechAnnotation` does for
+  containers.
+
+Both exporters group containers by `boundaryId` via `groupByBoundary()`
+(`export-shared.js`): Mermaid wraps them in `System_Boundary`/
+`Container_Boundary`/`Enterprise_Boundary` (picked from the boundary's
+`elementType` in `mermaidBoundaryMacro`, `export-mermaid.js`); LikeC4 nests
+them as child elements and references them via dotted qualified ids
+(`boundarySlug.containerSlug`) in relationships, since LikeC4 ids are scoped
+by nesting (`export-likec4.js`). `buildIdMap()` takes boundaries as a second,
+optional argument so boundary and container slugs share one collision-free
+namespace.
 
 ## UI (`src/ui/`)
 

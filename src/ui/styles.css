@@ -300,6 +300,39 @@ button.primary:hover {
     cursor: help;
     font-size: 12px;
 }
+.header-badges {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+/* Dashed border echoes how C4 tooling (Mermaid/LikeC4) draws a System/
+   Container Boundary box, so the badge reads as "this is a boundary" at a
+   glance rather than another categorical color like the type badges. */
+.boundary-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px 2px 6px;
+    border-radius: 10px;
+    white-space: nowrap;
+    background: #fff;
+    color: var(--text-muted);
+    border: 1px dashed var(--border);
+    cursor: pointer;
+}
+.boundary-badge:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+.boundary-badge svg {
+    width: 11px;
+    height: 11px;
+    flex-shrink: 0;
+}
 
 /* Container card */
 .container-card {
@@ -498,6 +531,12 @@ button.primary:hover {
 .cd-header-name {
     font-weight: 700;
     font-size: 12.5px;
+}
+.cd-header-name-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
 }
 .cd-section + .cd-section {
     margin-top: 8px;

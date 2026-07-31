@@ -60,10 +60,25 @@ function likeC4KindFor(container) {
     return raw ? toCamelIdentifier(raw, "component") : "component";
 }
 
-function toLikeC4Dsl(containers, relations) {
-    const idMap = buildIdMap(containers);
+// Boundaries reuse the softwareSystem/container kinds already declared for
+// containers - a boundary is really just a coarser-grained element in the
+// same C4 hierarchy, not a distinct concept LikeC4 needs a new kind for.
+function likeC4KindForBoundary(boundary) {
+    const type = normalizeSearch(boundary.elementType || "");
+    return /system|sistema/.test(type) ? "softwareSystem" : "container";
+}
+
+function toLikeC4Dsl(containers, relations, boundaries) {
+    const idMap = buildIdMap(containers, boundaries);
+    const containerById = new Map(containers.map((c) => [c.id, c]));
+    const boundaryById = new Map((boundaries || []).map((b) => [b.id, b]));
     const kindFor = new Map(containers.map((c) => [c.id, likeC4KindFor(c)]));
-    const kindsUsed = Array.from(new Set(kindFor.values())).sort();
+    const boundaryKindFor = new Map(
+        (boundaries || []).map((b) => [b.id, likeC4KindForBoundary(b)]),
+    );
+    const kindsUsed = Array.from(
+        new Set([...kindFor.values(), ...boundaryKindFor.values()]),
+    ).sort();
 
     const lines = ["specification {"];
     kindsUsed.forEach((k) => {
@@ -81,28 +96,56 @@ function toLikeC4Dsl(containers, relations) {
     });
     lines.push("}", "", "model {");
 
-    containers.forEach((c) => {
+    function containerLines(c, indent) {
         const id = idMap.get(c.id);
         const kind = kindFor.get(c.id);
         const hasBody = Boolean(c.technology || c.description);
         if (!hasBody) {
-            lines.push("  " + kind + " " + id + ' "' + esc(c.name) + '"');
-            return;
+            return [indent + kind + " " + id + ' "' + esc(c.name) + '"'];
         }
-        lines.push("  " + kind + " " + id + ' "' + esc(c.name) + '" {');
-        if (c.technology)
-            lines.push('    technology "' + esc(c.technology) + '"');
-        if (c.description)
-            lines.push('    description "' + esc(c.description) + '"');
+        return [
+            indent + kind + " " + id + ' "' + esc(c.name) + '" {',
+            ...(c.technology
+                ? [indent + '  technology "' + esc(c.technology) + '"']
+                : []),
+            ...(c.description
+                ? [indent + '  description "' + esc(c.description) + '"']
+                : []),
+            indent + "}",
+        ];
+    }
+
+    // Containers enclosed by a detected boundary box (see findContainerBoundary
+    // in code.ts) nest inside that boundary's element block, giving them a
+    // qualified id (boundary.child) - matching how the board actually groups
+    // them, instead of a flat list that loses the grouping.
+    const { groups, ungrouped } = groupByBoundary(containers, boundaries);
+    groups.forEach(({ boundary, containers: grouped }) => {
+        const bId = idMap.get(boundary.id);
+        const bKind = boundaryKindFor.get(boundary.id);
+        lines.push("  " + bKind + " " + bId + ' "' + esc(boundary.name) + '" {');
+        grouped.forEach((c) => lines.push(...containerLines(c, "    ")));
         lines.push("  }");
     });
+    ungrouped.forEach((c) => lines.push(...containerLines(c, "  ")));
 
     lines.push("");
+
+    function qualifiedId(containerId) {
+        const c = containerById.get(containerId);
+        if (!c) return null;
+        const id = idMap.get(c.id);
+        if (c.boundaryId && boundaryById.has(c.boundaryId)) {
+            return idMap.get(c.boundaryId) + "." + id;
+        }
+        return id;
+    }
+
     // LikeC4 relationships are always directional, so a bidirectional
     // connector is represented as a pair of opposing relationships.
     relations.forEach((r) => {
-        const s = idMap.get(r.source);
-        const t = idMap.get(r.target);
+        const s = qualifiedId(r.source);
+        const t = qualifiedId(r.target);
         if (!s || !t) return;
         const relLabel = r.label ? ' "' + esc(r.label) + '"' : "";
         const pairs = r.bidirectional ? [[s, t], [t, s]] : [[s, t]];

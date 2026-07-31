@@ -25,6 +25,17 @@ interface Container {
   description: string | null;
   fillColor: string | null;
   containerKind: ContainerKind;
+  boundaryId: string | null;
+}
+
+// A "boundary" is a big box (drawn shape, or a native FigJam Section) that
+// visually encloses several containers, with its own label sitting near its
+// bottom-left corner - the C4 "System Boundary" convention this shape kit
+// draws as a plain sibling shape rather than an actual parent/child nesting.
+interface Boundary {
+  id: string;
+  name: string;
+  elementType: string | null;
 }
 
 interface Relation {
@@ -41,6 +52,7 @@ interface Relation {
 interface ExtractResult {
   containers: Container[];
   relations: Relation[];
+  boundaries: Boundary[];
   skipped: number;
 }
 
@@ -334,6 +346,158 @@ function extractContainerKind(node: BaseNode | null): ContainerKind {
   return null;
 }
 
+// Node types this shape kit draws boundary boxes as. FRAME/GROUP/SECTION are
+// included for native FigJam sections and auto-layout wrappers; RECTANGLE and
+// SHAPE_WITH_TEXT cover a hand-drawn box (the observed case: a big
+// SHAPE_WITH_TEXT with its own .text left empty, boundary label floating
+// beside it as a separate sibling TEXT node - see findBoundaryLabelText).
+const BOUNDARY_CANDIDATE_TYPES = new Set([
+  "RECTANGLE",
+  "SHAPE_WITH_TEXT",
+  "FRAME",
+  "GROUP",
+  "SECTION",
+]);
+
+// Fraction of the boundary box's own width/height a label is allowed to sit
+// away from the bottom-left corner and still count as "in that corner"
+// (observed case: label ~0.5% of width from the left edge, ~1.7% of height
+// above the bottom edge - this tolerance is deliberately generous since box
+// sizes vary a lot across boards).
+const CORNER_LABEL_MARGIN_FRACTION = 0.2;
+
+function containsBox(outer: Rect, inner: Rect): boolean {
+  const epsilon = 0.5;
+  return (
+    inner.x >= outer.x - epsilon &&
+    inner.y >= outer.y - epsilon &&
+    inner.x + inner.width <= outer.x + outer.width + epsilon &&
+    inner.y + inner.height <= outer.y + outer.height + epsilon
+  );
+}
+
+function boxArea(box: Rect): number {
+  return box.width * box.height;
+}
+
+// Splits a boundary label like "Wink [Software System]" into its display
+// name and element type, mirroring splitTechAnnotation's "Name [Annotation]"
+// convention for container shapes - the same shape kit uses the same bracket
+// style for boundary labels.
+function parseBoundaryLabel(raw: string): {
+  name: string;
+  elementType: string | null;
+} {
+  const match = raw.match(/^(.*?)\s*\[([^\]]+)\]\s*$/);
+  if (!match) return { name: raw.trim(), elementType: null };
+  const namePart = match[1].trim();
+  const { elementType } = splitTechAnnotation(match[2].trim());
+  return { name: namePart || raw.trim(), elementType };
+}
+
+// A boundary box's label is either its own text (a SHAPE_WITH_TEXT/sticky
+// whose .text isn't empty) or, more commonly, a separate TEXT node floating
+// near its bottom-left corner among its siblings (not nested inside it) -
+// see the "Wink [Software System]" example this heuristic was built from.
+function findBoundaryLabelText(
+  shape: SceneNode,
+  shapeBox: Rect,
+  siblings: readonly SceneNode[],
+): string | null {
+  const withText = shape as unknown as { text?: { characters?: string } };
+  if (
+    withText.text &&
+    typeof withText.text.characters === "string" &&
+    withText.text.characters.trim() &&
+    isMeaningfulText(withText.text.characters)
+  ) {
+    return withText.text.characters.trim();
+  }
+
+  const cornerX = shapeBox.x;
+  const cornerY = shapeBox.y + shapeBox.height;
+  const marginX = shapeBox.width * CORNER_LABEL_MARGIN_FRACTION;
+  const marginY = shapeBox.height * CORNER_LABEL_MARGIN_FRACTION;
+
+  let best: { text: string; dist: number } | null = null;
+  for (const sibling of siblings) {
+    if (sibling.id === shape.id || sibling.type !== "TEXT") continue;
+    const text = sibling as TextNode;
+    const characters = text.characters.trim();
+    if (!characters || !isMeaningfulText(characters)) continue;
+    const box = text.absoluteBoundingBox;
+    if (!box) continue;
+    const textBottom = box.y + box.height;
+    if (box.x < cornerX - marginX || box.x > cornerX + marginX) continue;
+    if (textBottom < cornerY - marginY || textBottom > cornerY + marginY)
+      continue;
+    const dist = Math.abs(box.x - cornerX) + Math.abs(textBottom - cornerY);
+    if (!best || dist < best.dist) best = { text: characters, dist };
+  }
+
+  return best ? best.text : null;
+}
+
+// Finds the smallest labeled boundary candidate among a set of siblings that
+// geometrically encloses containerBox, excluding other connector endpoints.
+function bestBoundaryAt(
+  siblings: readonly SceneNode[],
+  excludeId: string,
+  containerBox: Rect,
+  endpointIds: Set<string>,
+): { shape: SceneNode; box: Rect } | null {
+  let best: { shape: SceneNode; box: Rect } | null = null;
+  for (const sibling of siblings) {
+    if (sibling.id === excludeId) continue;
+    if (!BOUNDARY_CANDIDATE_TYPES.has(sibling.type)) continue;
+    if (endpointIds.has(sibling.id)) continue;
+    const box = (sibling as SceneNode).absoluteBoundingBox;
+    if (!box) continue;
+    if (boxArea(box) <= boxArea(containerBox)) continue;
+    if (!containsBox(box, containerBox)) continue;
+    if (!best || boxArea(box) < boxArea(best.box)) best = { shape: sibling, box };
+  }
+  return best;
+}
+
+// Finds the boundary box (if any) that geometrically encloses a container:
+// the smallest shape (not another connector endpoint) whose bounding box
+// fully contains the container's own bounding box. Boxes and containers
+// aren't necessarily direct siblings in the layer tree - a board may have
+// some containers grouped together (e.g. a manual Ctrl+G) while others sit
+// loose directly under the same top-level FigJam Section as the boundary box
+// itself, so a container can be nested one or more GROUP/FRAME levels deeper
+// than the box that visually encloses it. This climbs the ancestor chain -
+// checking each level's siblings in turn against the *original* container's
+// absolute box (unaffected by how deep it's nested) - stopping at the first
+// level that yields a labeled match, or at the page if none do.
+function findContainerBoundary(
+  node: BaseNode | null,
+  endpointIds: Set<string>,
+): Boundary | null {
+  if (!node || !("absoluteBoundingBox" in node)) return null;
+  const containerBox = (node as SceneNode).absoluteBoundingBox;
+  if (!containerBox) return null;
+
+  let currentId: string = node.id;
+  let ancestor: (BaseNode & ChildrenMixin) | null = node.parent;
+  while (ancestor) {
+    const siblings: readonly SceneNode[] = ancestor.children;
+    const best = bestBoundaryAt(siblings, currentId, containerBox, endpointIds);
+    if (best) {
+      const labelText = findBoundaryLabelText(best.shape, best.box, siblings);
+      if (labelText) {
+        const { name, elementType } = parseBoundaryLabel(labelText);
+        return { id: best.shape.id, name, elementType };
+      }
+    }
+    if (ancestor.type === "PAGE") break;
+    currentId = ancestor.id;
+    ancestor = ancestor.parent;
+  }
+  return null;
+}
+
 // Container ids from the last extraction. Used by the selectionchange
 // listener to tell "user selected a C4 container on the canvas" apart from
 // selecting any other random node.
@@ -351,8 +515,21 @@ function extractRelations(): ExtractResult {
     types: ["CONNECTOR"],
   });
   const containerMap = new Map<string, Container>();
+  const boundaryMap = new Map<string, Boundary>();
   const relations: Relation[] = [];
   let skipped = 0;
+
+  // Every connector endpoint is a known container - collected up front so
+  // findContainerBoundary can tell "a boundary box" apart from "another
+  // container that happens to be nearby," regardless of which endpoint gets
+  // processed (and thus resolved into containerMap) first.
+  const endpointIds = new Set<string>();
+  for (const connector of connectors) {
+    const start = connector.connectorStart;
+    const end = connector.connectorEnd;
+    if (start && "endpointNodeId" in start) endpointIds.add(start.endpointNodeId);
+    if (end && "endpointNodeId" in end) endpointIds.add(end.endpointNodeId);
+  }
 
   debugLog(
     `[extract-c4] found ${connectors.length} connector(s) on page "${figma.currentPage.name}"`,
@@ -399,6 +576,8 @@ function extractRelations(): ExtractResult {
     );
 
     if (!containerMap.has(sourceId)) {
+      const sourceBoundary = findContainerBoundary(sourceNode, endpointIds);
+      if (sourceBoundary) boundaryMap.set(sourceBoundary.id, sourceBoundary);
       containerMap.set(sourceId, {
         id: sourceId,
         name: sourceDetails.name,
@@ -409,9 +588,12 @@ function extractRelations(): ExtractResult {
         description: sourceDetails.description,
         fillColor: extractFillColor(sourceNode),
         containerKind: extractContainerKind(sourceNode),
+        boundaryId: sourceBoundary ? sourceBoundary.id : null,
       });
     }
     if (!containerMap.has(targetId)) {
+      const targetBoundary = findContainerBoundary(targetNode, endpointIds);
+      if (targetBoundary) boundaryMap.set(targetBoundary.id, targetBoundary);
       containerMap.set(targetId, {
         id: targetId,
         name: targetDetails.name,
@@ -422,6 +604,7 @@ function extractRelations(): ExtractResult {
         description: targetDetails.description,
         fillColor: extractFillColor(targetNode),
         containerKind: extractContainerKind(targetNode),
+        boundaryId: targetBoundary ? targetBoundary.id : null,
       });
     }
 
@@ -472,12 +655,15 @@ function extractRelations(): ExtractResult {
   }
 
   const containers: Container[] = Array.from(containerMap.values());
+  const boundaries: Boundary[] = Array.from(boundaryMap.values());
   knownContainerIds = new Set(containerMap.keys());
   debugLog(
-    `[extract-c4] resolved ${containers.length} container(s), skipped ${skipped} connector(s)`,
+    `[extract-c4] resolved ${containers.length} container(s), ` +
+      `${boundaries.length} boundary(ies), skipped ${skipped} connector(s)`,
     containers,
+    boundaries,
   );
-  return { containers, relations, skipped };
+  return { containers, relations, boundaries, skipped };
 }
 
 function getSelectedConnectorId(): string | null {

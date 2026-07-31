@@ -18,11 +18,39 @@ function slugify(name, used) {
     return id;
 }
 
-function buildIdMap(containers) {
+function buildIdMap(containers, boundaries) {
     const used = new Set();
     const idMap = new Map();
+    (boundaries || []).forEach((b) => idMap.set(b.id, slugify(b.name, used)));
     containers.forEach((c) => idMap.set(c.id, slugify(c.name, used)));
     return idMap;
+}
+
+// Splits containers into per-boundary groups (in first-seen order) plus the
+// leftover containers that aren't enclosed by any detected boundary box -
+// shared by both exporters so a container's boundary grouping never
+// disagrees between Mermaid and LikeC4 output.
+function groupByBoundary(containers, boundaries) {
+    const boundaryById = new Map((boundaries || []).map((b) => [b.id, b]));
+    const order = [];
+    const containersByBoundary = new Map();
+    const ungrouped = [];
+    containers.forEach((c) => {
+        if (c.boundaryId && boundaryById.has(c.boundaryId)) {
+            if (!containersByBoundary.has(c.boundaryId)) {
+                containersByBoundary.set(c.boundaryId, []);
+                order.push(c.boundaryId);
+            }
+            containersByBoundary.get(c.boundaryId).push(c);
+        } else {
+            ungrouped.push(c);
+        }
+    });
+    const groups = order.map((id) => ({
+        boundary: boundaryById.get(id),
+        containers: containersByBoundary.get(id),
+    }));
+    return { groups, ungrouped };
 }
 
 var DIACRITIC_RE = new RegExp("[̀-ͯ]", "g");

@@ -1,5 +1,6 @@
 let currentContainers = [];
 let currentRelations = [];
+let currentBoundaries = [];
 let selectedRelationId = null;
 let selectedContainerId = null;
 let searchQuery = "";
@@ -33,8 +34,8 @@ const tabViews = {
 function renderExportOutput() {
     mermaidOutput.value =
         exportFormat === "likec4"
-            ? toLikeC4Dsl(currentContainers, currentRelations)
-            : toMermaidC4(currentContainers, currentRelations);
+            ? toLikeC4Dsl(currentContainers, currentRelations, currentBoundaries)
+            : toMermaidC4(currentContainers, currentRelations, currentBoundaries);
     copyStatus.textContent = "";
 }
 
@@ -136,6 +137,37 @@ copyBtn.onclick = async () => {
         copyStatus.textContent = "Copied to clipboard.";
     }
 };
+
+function findBoundary(id) {
+    return currentBoundaries.find((b) => b.id === id) || null;
+}
+
+const BOUNDARY_ICON_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-dasharray="3 3">' +
+    '<rect x="3" y="3" width="18" height="18" rx="2"></rect>' +
+    "</svg>";
+
+// Badge showing which detected boundary box (see findContainerBoundary in
+// code.ts) a container is enclosed by, if any. Clickable like the locate
+// icons - see the ".boundary-badge" handling in the containersEl/
+// containerDetailEl click listeners - since its data-id is the boundary
+// shape's own node id, not the container's.
+function boundaryBadgeHtml(container) {
+    if (!container || !container.boundaryId) return "";
+    const boundary = findBoundary(container.boundaryId);
+    if (!boundary) return "";
+    return (
+        '<span class="boundary-badge" data-id="' +
+        escapeHtml(boundary.id) +
+        '" title="Boundary: ' +
+        escapeHtml(boundary.name) +
+        ' — click to locate on canvas">' +
+        BOUNDARY_ICON_SVG +
+        escapeHtml(boundary.name) +
+        "</span>"
+    );
+}
 
 function fallbackWarningHtml(isFallback) {
     return isFallback
@@ -253,7 +285,10 @@ function renderContainers() {
             escapeHtml(c.name) +
             "</span>" +
             fallbackWarningHtml(isFallback) +
-            typeBadgeHtml(c);
+            '<span class="header-badges">' +
+            boundaryBadgeHtml(c) +
+            typeBadgeHtml(c) +
+            "</span>";
         item.appendChild(header);
 
         const locateBtn = document.createElement("button");
@@ -434,7 +469,7 @@ const BOTH_ARROW_SVG =
     "</svg>";
 
 containersEl.addEventListener("click", (event) => {
-    const focusBtn = event.target.closest(".icon-btn");
+    const focusBtn = event.target.closest(".icon-btn, .boundary-badge");
     if (focusBtn) {
         const id = focusBtn.getAttribute("data-id");
         if (id) {
@@ -787,8 +822,11 @@ function renderContainerDetail(containerId) {
     const header = document.createElement("div");
     header.className = "relation-detail-header";
     header.innerHTML =
+        '<span class="cd-header-name-group">' +
         '<span class="cd-header-name">' +
         escapeHtml(container.name) +
+        "</span>" +
+        boundaryBadgeHtml(container) +
         "</span>" +
         '<button class="relation-detail-close" title="Close">&times;</button>';
     containerDetailEl.appendChild(header);
@@ -895,7 +933,7 @@ relationDetailEl.addEventListener("click", (event) => {
 });
 
 containerDetailEl.addEventListener("click", (event) => {
-    const btn = event.target.closest(".icon-btn");
+    const btn = event.target.closest(".icon-btn, .boundary-badge");
     if (btn) {
         const id = btn.getAttribute("data-id");
         if (id) {
@@ -932,6 +970,7 @@ window.onmessage = (event) => {
     if (msg.type === "relations") {
         currentContainers = msg.containers || [];
         currentRelations = msg.relations || [];
+        currentBoundaries = msg.boundaries || [];
         if (msg.focusRelationId) {
             selectedRelationId = msg.focusRelationId;
             showTab("relations");
