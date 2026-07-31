@@ -1,6 +1,7 @@
 let currentContainers = [];
 let currentRelations = [];
 let currentBoundaries = [];
+let currentIssues = [];
 let selectedRelationId = null;
 let selectedContainerId = null;
 let searchQuery = "";
@@ -9,8 +10,10 @@ let typeFilter = "all";
 
 const relationsEl = document.getElementById("relations");
 const containersEl = document.getElementById("containers");
+const issuesEl = document.getElementById("issues");
 const containerCountEl = document.getElementById("container-count");
 const relationCountEl = document.getElementById("relation-count");
+const issueCountEl = document.getElementById("issue-count");
 const relationDetailEl = document.getElementById("relation-detail");
 const containerDetailEl = document.getElementById("container-detail");
 const mermaidOutput = document.getElementById("mermaid-output");
@@ -27,6 +30,7 @@ const tabButtons = document.querySelectorAll(".tab-btn");
 const tabViews = {
     relations: document.getElementById("relations-view"),
     containers: document.getElementById("containers-view"),
+    errors: document.getElementById("errors-view"),
     export: document.getElementById("export-view"),
     settings: document.getElementById("settings-view"),
 };
@@ -48,7 +52,7 @@ function showTab(name) {
     );
     searchBarEl.classList.toggle(
         "hidden",
-        name === "export" || name === "settings",
+        name === "export" || name === "settings" || name === "errors",
     );
     if (name === "export") {
         renderExportOutput();
@@ -609,6 +613,80 @@ function renderRelations() {
     }
 }
 
+// Human-readable label + hint for each Issue.kind the plugin can report (see
+// the Issue type in code.ts) - keeps the taxonomy easy to extend with new
+// kinds later without touching the render loop below.
+const ISSUE_KIND_LABELS = {
+    "unattached-endpoint": "Unattached endpoint",
+};
+const ISSUE_KIND_HINTS = {
+    "unattached-endpoint":
+        "One end of this connector isn't attached to any shape.",
+};
+
+function issueKindBadgeHtml(kind) {
+    const label = ISSUE_KIND_LABELS[kind] || kind;
+    const hint = ISSUE_KIND_HINTS[kind] || "";
+    return (
+        '<span class="type-badge issue-kind-badge" title="' +
+        escapeHtml(hint) +
+        '">' +
+        escapeHtml(label) +
+        "</span>"
+    );
+}
+
+function renderIssues() {
+    issueCountEl.textContent = currentIssues.length;
+    issuesEl.innerHTML = "";
+    if (currentIssues.length === 0) {
+        issuesEl.innerHTML = emptyStateHtml(
+            EMPTY_ICON_SVG,
+            "No issues found",
+            "Every connector resolved cleanly to a real element on both ends.",
+        );
+        return;
+    }
+    currentIssues.forEach((issue) => {
+        const item = document.createElement("div");
+        item.className = "card issue-card";
+
+        const header = document.createElement("div");
+        header.className = "container-card-header";
+        header.innerHTML =
+            '<span class="name">' +
+            escapeHtml(issue.connectorLabel) +
+            "</span>" +
+            '<span class="header-badges">' +
+            issueKindBadgeHtml(issue.kind) +
+            "</span>";
+        item.appendChild(header);
+
+        const locateBtn = document.createElement("button");
+        locateBtn.className = "icon-btn locate-corner";
+        locateBtn.setAttribute("data-id", issue.connectorId);
+        locateBtn.title = "Go to connector on canvas";
+        locateBtn.innerHTML = LOCATE_ICON_SVG;
+        item.appendChild(locateBtn);
+
+        const message = document.createElement("div");
+        message.className = "container-meta";
+        message.innerHTML = '<div class="desc">' + escapeHtml(issue.message) + "</div>";
+        item.appendChild(message);
+
+        issuesEl.appendChild(item);
+    });
+}
+
+issuesEl.addEventListener("click", (event) => {
+    const focusBtn = event.target.closest(".icon-btn");
+    if (!focusBtn) return;
+    const id = focusBtn.getAttribute("data-id");
+    if (id) {
+        parent.postMessage({ pluginMessage: { type: "focus", id } }, "*");
+    }
+});
+
 function findContainer(id) {
     return currentContainers.find((c) => c.id === id) || null;
 }
@@ -971,6 +1049,7 @@ window.onmessage = (event) => {
         currentContainers = msg.containers || [];
         currentRelations = msg.relations || [];
         currentBoundaries = msg.boundaries || [];
+        currentIssues = msg.issues || [];
         if (msg.focusRelationId) {
             selectedRelationId = msg.focusRelationId;
             showTab("relations");
@@ -981,6 +1060,7 @@ window.onmessage = (event) => {
         }
         renderContainers();
         renderRelations();
+        renderIssues();
         if (msg.focusRelationId) {
             const card = relationsEl.querySelector(
                 '.relation-card[data-relation-id="' +

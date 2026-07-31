@@ -49,10 +49,24 @@ interface Relation {
   bidirectional: boolean;
 }
 
+// A problem found while extracting a connector, surfaced in the UI's Errors
+// tab so the user can jump straight to the offending connector on the canvas
+// instead of only seeing its symptom (a missing relation, a bogus container).
+type IssueKind = "unattached-endpoint";
+
+interface Issue {
+  id: string;
+  connectorId: string;
+  connectorLabel: string;
+  kind: IssueKind;
+  message: string;
+}
+
 interface ExtractResult {
   containers: Container[];
   relations: Relation[];
   boundaries: Boundary[];
+  issues: Issue[];
   skipped: number;
 }
 
@@ -192,6 +206,44 @@ function extractContainerDetails(node: BaseNode | null): ContainerDetails {
     return {
       name: "Unknown",
       nameSource: "missing-node",
+      elementType: null,
+      technology: null,
+      description: null,
+    };
+  }
+
+  // A native FigJam Section is sometimes used as the System Boundary box
+  // itself (see BOUNDARY_CANDIDATE_TYPES below), and a relation can
+  // legitimately start/end right on its edge - e.g. "the whole system reads
+  // feature flags from Redis" - rather than on one specific inner container.
+  // A Section can hold dozens of unrelated containers though, so falling
+  // through to the generic lookup below (which walks every descendant) would
+  // grab the *first* Título/Tecnología/Descripción triplet it stumbles on and
+  // mislabel the Section as if it were that unrelated container. Instead,
+  // look only at the Section's own direct children for its "Name [Type]"
+  // boundary label - the same convention hand-drawn boundary boxes use.
+  if (node.type === "SECTION") {
+    const ownLabel = node.children.find(
+      (c): c is TextNode =>
+        c.type === "TEXT" &&
+        isMeaningfulText(c.characters) &&
+        /\[[^\]]+\]/.test(c.characters),
+    );
+    if (ownLabel) {
+      const { name, elementType } = parseBoundaryLabel(
+        ownLabel.characters.trim(),
+      );
+      return {
+        name,
+        nameSource: "section-label",
+        elementType,
+        technology: null,
+        description: null,
+      };
+    }
+    return {
+      name: node.name,
+      nameSource: "node-name-fallback",
       elementType: null,
       technology: null,
       description: null,
@@ -510,6 +562,14 @@ function hasArrowhead(cap: ConnectorStrokeCap): boolean {
   return cap !== "NONE";
 }
 
+function connectorLabelFor(connector: ConnectorNode): string {
+  const text =
+    connector.text && connector.text.characters
+      ? connector.text.characters.trim()
+      : "";
+  return text || connector.name.trim() || "(no label)";
+}
+
 function extractRelations(): ExtractResult {
   const connectors = figma.currentPage.findAllWithCriteria({
     types: ["CONNECTOR"],
@@ -517,6 +577,7 @@ function extractRelations(): ExtractResult {
   const containerMap = new Map<string, Container>();
   const boundaryMap = new Map<string, Boundary>();
   const relations: Relation[] = [];
+  const issues: Issue[] = [];
   let skipped = 0;
 
   // Every connector endpoint is a known container - collected up front so
@@ -546,6 +607,14 @@ function extractRelations(): ExtractResult {
       !("endpointNodeId" in end)
     ) {
       skipped++;
+      issues.push({
+        id: `${connector.id}-unattached`,
+        connectorId: connector.id,
+        connectorLabel: connectorLabelFor(connector),
+        kind: "unattached-endpoint",
+        message:
+          "This connector isn't attached to a shape on one of its ends.",
+      });
       debugLog(
         `[extract-c4] skipping connector ${connector.id}: not attached to a node on both ends`,
       );
@@ -564,6 +633,7 @@ function extractRelations(): ExtractResult {
     const targetId = reversed ? start.endpointNodeId : end.endpointNodeId;
     const sourceNode = figma.getNodeById(sourceId);
     const targetNode = figma.getNodeById(targetId);
+
     const sourceDetails = extractContainerDetails(sourceNode);
     const targetDetails = extractContainerDetails(targetNode);
 
@@ -663,7 +733,7 @@ function extractRelations(): ExtractResult {
     containers,
     boundaries,
   );
-  return { containers, relations, boundaries, skipped };
+  return { containers, relations, boundaries, issues, skipped };
 }
 
 function getSelectedConnectorId(): string | null {

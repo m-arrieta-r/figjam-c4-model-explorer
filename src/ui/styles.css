@@ -388,6 +388,16 @@ button.primary:hover {
     font-size: 11.5px;
 }
 
+/* Issue card (Errors tab) */
+.issue-card .container-card-header {
+    padding-right: 28px;
+}
+.issue-kind-badge {
+    background: var(--danger-bg);
+    color: var(--danger);
+    margin-left: auto;
+}
+
 /* Relation card */
 .relation-card {
     cursor: pointer;

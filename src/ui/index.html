@@ -73,6 +73,10 @@
                     Containers
                     <span class="tab-count" id="container-count">0</span>
                 </button>
+                <button class="tab-btn" data-tab="errors">
+                    Errors
+                    <span class="tab-count" id="issue-count">0</span>
+                </button>
                 <button class="tab-btn" data-tab="export">Export</button>
                 <button class="tab-btn" data-tab="settings">Settings</button>
             </div>
@@ -118,6 +122,10 @@
                     id="container-detail"
                     class="container-detail hidden"
                 ></div>
+            </div>
+
+            <div id="errors-view" class="tab-view hidden">
+                <div id="issues"></div>
             </div>
 
             <div id="export-view" class="tab-view hidden">
