@@ -6,6 +6,7 @@ let selectedRelationId = null;
 let selectedContainerId = null;
 let searchQuery = "";
 let exportFormat = "mermaid";
+let includeLikeC4Specification = false;
 let typeFilter = "all";
 
 const relationsEl = document.getElementById("relations");
@@ -24,7 +25,11 @@ const typeFilterEl = document.getElementById("type-filter");
 const searchInputEl = document.getElementById("search-input");
 const searchClearEl = document.getElementById("search-clear");
 const formatButtons = document.querySelectorAll(".format-btn");
+const likeC4SpecToggleEl = document.getElementById("likec4-spec-toggle");
+const likeC4SpecCheckboxEl = document.getElementById("likec4-spec-checkbox");
 const debugModeToggle = document.getElementById("debug-mode-toggle");
+const scanAllPagesToggle = document.getElementById("scan-all-pages-toggle");
+const scanScopeNoteEl = document.getElementById("scan-scope-note");
 
 const tabButtons = document.querySelectorAll(".tab-btn");
 const tabViews = {
@@ -38,7 +43,12 @@ const tabViews = {
 function renderExportOutput() {
     mermaidOutput.value =
         exportFormat === "likec4"
-            ? toLikeC4Dsl(currentContainers, currentRelations, currentBoundaries)
+            ? toLikeC4Dsl(
+                  currentContainers,
+                  currentRelations,
+                  currentBoundaries,
+                  includeLikeC4Specification,
+              )
             : toMermaidC4(currentContainers, currentRelations, currentBoundaries);
     copyStatus.textContent = "";
 }
@@ -67,8 +77,14 @@ formatButtons.forEach((btn) => {
     btn.onclick = () => {
         exportFormat = btn.dataset.format;
         formatButtons.forEach((b) => b.classList.toggle("active", b === btn));
+        likeC4SpecToggleEl.classList.toggle("hidden", exportFormat !== "likec4");
         renderExportOutput();
     };
+});
+
+likeC4SpecCheckboxEl.addEventListener("change", () => {
+    includeLikeC4Specification = likeC4SpecCheckboxEl.checked;
+    renderExportOutput();
 });
 
 function matchesSearch(fields) {
@@ -130,6 +146,29 @@ debugModeToggle.addEventListener("change", () => {
         "*",
     );
 });
+
+// Re-extracting across every page in the file is slower than the current
+// page alone, so this is opt-in - toggling it re-runs the extraction
+// immediately (see the "set-scan-all-pages" handler in code.ts) rather than
+// waiting for the next manual Refresh.
+scanAllPagesToggle.addEventListener("change", () => {
+    updateScanScopeNote();
+    parent.postMessage(
+        {
+            pluginMessage: {
+                type: "set-scan-all-pages",
+                enabled: scanAllPagesToggle.checked,
+            },
+        },
+        "*",
+    );
+});
+
+function updateScanScopeNote() {
+    scanScopeNoteEl.textContent = scanAllPagesToggle.checked
+        ? "Scanning every page - same-name elements across pages are merged automatically."
+        : "Scanning only the current page.";
+}
 
 copyBtn.onclick = async () => {
     try {
@@ -618,10 +657,19 @@ function renderRelations() {
 // kinds later without touching the render loop below.
 const ISSUE_KIND_LABELS = {
     "unattached-endpoint": "Unattached endpoint",
+    "self-relation": "Self-relation",
+    "empty-label": "Empty label",
+    "malformed-boundary-label": "Malformed boundary label",
 };
 const ISSUE_KIND_HINTS = {
     "unattached-endpoint":
         "One end of this connector isn't attached to any shape.",
+    "self-relation":
+        "Both ends of this connector resolve to the same shape.",
+    "empty-label":
+        "One end of this connector has no title text of its own.",
+    "malformed-boundary-label":
+        "This boundary box's label text looks malformed (multi-line or too long).",
 };
 
 function issueKindBadgeHtml(kind) {
@@ -1044,11 +1092,31 @@ window.onmessage = (event) => {
     if (!msg) return;
     if (msg.type === "settings") {
         debugModeToggle.checked = !!msg.debugMode;
+        scanAllPagesToggle.checked = !!msg.scanAllPages;
+        updateScanScopeNote();
     }
     if (msg.type === "relations") {
-        currentContainers = msg.containers || [];
-        currentRelations = msg.relations || [];
-        currentBoundaries = msg.boundaries || [];
+        // A whole-file scan concatenates every page's containers/boundaries
+        // as-is (see extractRelationsAllPages in code.ts) - the same system
+        // referenced as a plain box on one page and fully decomposed on
+        // another would otherwise appear twice. Only applied for that scope:
+        // within a single page, two elements sharing a name are genuinely
+        // distinct and must never be collapsed into one.
+        const scoped =
+            msg.scope === "all-pages"
+                ? mergeAcrossPages(
+                      msg.containers || [],
+                      msg.relations || [],
+                      msg.boundaries || [],
+                  )
+                : {
+                      containers: msg.containers || [],
+                      relations: msg.relations || [],
+                      boundaries: msg.boundaries || [],
+                  };
+        currentContainers = scoped.containers;
+        currentRelations = scoped.relations;
+        currentBoundaries = scoped.boundaries;
         currentIssues = msg.issues || [];
         if (msg.focusRelationId) {
             selectedRelationId = msg.focusRelationId;

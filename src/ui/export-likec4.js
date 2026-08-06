@@ -68,7 +68,11 @@ function likeC4KindForBoundary(boundary) {
     return /system|sistema/.test(type) ? "softwareSystem" : "container";
 }
 
-function toLikeC4Dsl(containers, relations, boundaries) {
+// includeSpecification defaults to true; pass false to omit the
+// specification {} block, e.g. when pasting model+views into a LikeC4
+// workspace that already declares its own element kinds elsewhere.
+function toLikeC4Dsl(containers, relations, boundaries, includeSpecification) {
+    if (includeSpecification === undefined) includeSpecification = true;
     const idMap = buildIdMap(containers, boundaries);
     const containerById = new Map(containers.map((c) => [c.id, c]));
     const boundaryById = new Map((boundaries || []).map((b) => [b.id, b]));
@@ -76,25 +80,29 @@ function toLikeC4Dsl(containers, relations, boundaries) {
     const boundaryKindFor = new Map(
         (boundaries || []).map((b) => [b.id, likeC4KindForBoundary(b)]),
     );
-    const kindsUsed = Array.from(
-        new Set([...kindFor.values(), ...boundaryKindFor.values()]),
-    ).sort();
 
-    const lines = ["specification {"];
-    kindsUsed.forEach((k) => {
-        const style = LIKEC4_KIND_STYLE[k];
-        if (!style) {
-            lines.push("  element " + k);
-            return;
-        }
-        lines.push("  element " + k + " {");
-        lines.push("    style {");
-        lines.push("      shape " + style.shape);
-        lines.push("      color " + style.color);
-        lines.push("    }");
-        lines.push("  }");
-    });
-    lines.push("}", "", "model {");
+    const lines = [];
+    if (includeSpecification) {
+        const kindsUsed = Array.from(
+            new Set([...kindFor.values(), ...boundaryKindFor.values()]),
+        ).sort();
+        lines.push("specification {");
+        kindsUsed.forEach((k) => {
+            const style = LIKEC4_KIND_STYLE[k];
+            if (!style) {
+                lines.push("  element " + k);
+                return;
+            }
+            lines.push("  element " + k + " {");
+            lines.push("    style {");
+            lines.push("      shape " + style.shape);
+            lines.push("      color " + style.color);
+            lines.push("    }");
+            lines.push("  }");
+        });
+        lines.push("}", "");
+    }
+    lines.push("model {");
 
     function containerLines(c, indent) {
         const id = idMap.get(c.id);
@@ -165,10 +173,58 @@ function toLikeC4Dsl(containers, relations, boundaries) {
         "",
         "views {",
         "  view index {",
+        '    title "Landscape"',
         "    include *",
         "  }",
-        "}",
     );
+
+    // Beyond the index/landscape view above, emit one System Context (N1) view
+    // per software system and, for systems decomposed into containers on the
+    // board (a boundary box, see groupByBoundary), a Container (N2) view too.
+    // A plain "include *" inside a scoped view pulls in the element's nested
+    // children (LikeC4's scoped-wildcard semantics) - exactly what a Container
+    // view needs, but too much for a System Context view, which should show
+    // the system as a single box plus only its direct neighbors.
+    const viewIdsUsed = new Set(["index"]);
+
+    function pushContextView(id, name) {
+        const viewId = slugify(name + " context", viewIdsUsed);
+        lines.push(
+            "",
+            "  view " + viewId + " of " + id + " {",
+            '    title "' + esc(name) + ' - System Context"',
+            "    include " + id,
+            "    include " + id + " ->",
+            "    include -> " + id,
+            "  }",
+        );
+    }
+
+    function pushContainerView(id, name) {
+        const viewId = slugify(name + " containers", viewIdsUsed);
+        lines.push(
+            "",
+            "  view " + viewId + " of " + id + " {",
+            '    title "' + esc(name) + ' - Containers"',
+            "    include *",
+            "  }",
+        );
+    }
+
+    groups.forEach(({ boundary }) => {
+        if (boundaryKindFor.get(boundary.id) !== "softwareSystem") return;
+        const bId = idMap.get(boundary.id);
+        pushContextView(bId, boundary.name);
+        pushContainerView(bId, boundary.name);
+    });
+
+    containers.forEach((c) => {
+        if (containerCategory(c) !== "software-system") return;
+        if (c.boundaryId && boundaryById.has(c.boundaryId)) return;
+        pushContextView(idMap.get(c.id), c.name);
+    });
+
+    lines.push("}");
 
     return lines.join("\n");
 }

@@ -4,11 +4,13 @@ Context for LLM coding agents working in this repo. Read this before making chan
 
 ## What this is
 
-A FigJam plugin. It scans the current page for `CONNECTOR` nodes, resolves the
-shapes at both ends of each connector into "containers" (extracting name /
-C4 element type / technology / description from their text layers), and shows
-the result in a plugin UI with three tabs: **Relations**, **Containers**, and
-**Export** (Mermaid C4 or LikeC4 DSL). The word "container" here is the
+A FigJam plugin. It scans `CONNECTOR` nodes — on the current page by default,
+or across every page in the file if the "Scan all pages" setting is on (see
+"Whole-file scan" below) — resolves the shapes at both ends of each connector
+into "containers" (extracting name / C4 element type / technology /
+description from their text layers), and shows the result in a plugin UI with
+five tabs: **Relations**, **Containers**, **Errors**, **Export** (Mermaid C4
+or LikeC4 DSL), and **Settings**. The word "container" here is the
 project-wide term for a connector endpoint shape (any C4 element — Person,
 Software System, Database... — not just the C4 "Container" type); it replaced
 the earlier term "box" everywhere (types, message payloads, DOM ids/classes,
@@ -43,10 +45,13 @@ Message protocol between the two (informal, not typed across the boundary):
 | Direction | `type` | Payload | Purpose |
 |---|---|---|---|
 | UI → plugin | `ui-ready` | — | Sent once, right after `window.onmessage` is attached. See "startup race" below. |
-| UI → plugin | `extract` | — | Re-run extraction (Refresh button). |
-| UI → plugin | `focus` | `id` | Select + zoom to a node on the canvas. |
+| UI → plugin | `extract` | — | Re-run extraction (Refresh button), using whatever scope (`scanAllPages`) is currently set. |
+| UI → plugin | `focus` | `id` | Select + zoom to a node on the canvas. Also used by Errors-tab issue cards — `connectorId` on an `Issue` isn't always a connector (see "Errors tab" below). |
+| UI → plugin | `set-debug` | `enabled` | Toggle debug logging (Settings tab), persisted via `figma.clientStorage`. |
+| UI → plugin | `set-scan-all-pages` | `enabled` | Toggle whole-file scanning (Settings tab), persisted via `figma.clientStorage`. Triggers an immediate re-extraction with the new scope. |
 | UI → plugin | `close` | — | Close the plugin. |
-| plugin → UI | `relations` | `containers`, `relations`, `boundaries`, `skipped`, `focusRelationId`, `focusContainerId` | Extraction result. `focusRelationId` / `focusContainerId` are non-null only when launched via the corresponding relaunch button (see below). |
+| plugin → UI | `settings` | `debugMode`, `scanAllPages` | Sent once in response to `ui-ready`, before the first `relations` message, so the Settings tab's toggles reflect persisted state. |
+| plugin → UI | `relations` | `containers`, `relations`, `boundaries`, `issues`, `skipped`, `scope`, `focusRelationId`, `focusContainerId` | Extraction result. `scope` is `"current-page"` or `"all-pages"` — `app.js` only runs `mergeAcrossPages()` (cross-page dedup) when it's `"all-pages"`; see "Whole-file scan" below. `focusRelationId` / `focusContainerId` are non-null only when launched via the corresponding relaunch button (see below). |
 | plugin → UI | `container-selected` | `id` | Sent by the `selectionchange` listener when the user selects exactly one node on the canvas whose id is a known container (from the last extraction). The UI switches to the Containers tab, selects that card and opens its incoming/outgoing detail panel. Programmatic selections made by `focusNode` are suppressed via `lastProgrammaticSelectionId` so clicking a locate icon in the UI doesn't bounce the panel to the Containers tab — keep that suppression if you touch selection code. |
 
 ### Startup race — do not reintroduce
@@ -93,7 +98,13 @@ tries strategies in order, falling through if one doesn't produce a name:
    Figma layer name. Flagged via `labelSource === 'node-name-fallback'`, and
    surfaced in the UI as a small ⚠ (see `fallbackWarningHtml` in `app.js`)
    rather than a full badge — treat this as "extraction probably guessed
-   wrong, the container may need a proper text layer."
+   wrong, the container may need a proper text layer." If that layer name is
+   also one of Figma/FigJam's own defaults for a never-labeled shape
+   (`GENERIC_DEFAULT_NAMES` in `code.ts` — `"Shape with text"`, `"Rectangle"`,
+   etc.), `isUnlabeledFallback()` additionally raises an `empty-label` issue
+   (see "Errors tab" below) instead of quietly exporting e.g.
+   `component shape_with_text "Shape with text"` as if it were a real
+   element.
 
 `splitTechAnnotation(raw)` then splits whatever bracket content was found on
 the first `:` — `"Container: Oracle APEX"` → `elementType: "Container"`,
@@ -133,7 +144,18 @@ text extraction above:
   the nearest sibling `TEXT` within `CORNER_LABEL_MARGIN_FRACTION` (20%) of
   the box's width/height from that corner. `parseBoundaryLabel` then splits
   `"Name [Annotation]"` the same way `splitTechAnnotation` does for
-  containers.
+  containers — but looks for the `[...]` bracket *anywhere* in the text
+  (like `findBracketRun` does for containers), not just anchored at the end,
+  because a boundary's own `.text` sometimes carries a full multi-line
+  container-card layout (`"Name\n[Type]\nDescription"`) instead of a single
+  `"Name [Type]"` line; anchoring to the end would swallow the whole blob
+  (including a nested container's own title/description, if the box's text
+  field ends up duplicating content from a shape near it) as the name.
+  `Boundary.rawLabel` keeps the pre-parse text specifically so
+  `isMalformedBoundaryLabel()` can flag a label that still looks off (spans
+  multiple lines, or over 80 chars) as a `malformed-boundary-label` issue —
+  see "Errors tab" below — rather than exporting a garbled multi-line
+  identifier source silently.
 
 Both exporters group containers by `boundaryId` via `groupByBoundary()`
 (`export-shared.js`): Mermaid wraps them in `System_Boundary`/
@@ -144,6 +166,78 @@ them as child elements and references them via dotted qualified ids
 by nesting (`export-likec4.js`). `buildIdMap()` takes boundaries as a second,
 optional argument so boundary and container slugs share one collision-free
 namespace.
+
+## Errors tab (Issue system)
+
+`Issue` (`code.ts`) is how extraction surfaces "this connector/shape looks
+wrong" without silently exporting a broken or misleading element. Every
+`IssueKind` is pushed during `extractRelationsForPage`, never inferred
+after the fact:
+
+- `unattached-endpoint` — a connector isn't attached to a shape on one (or
+  both) ends.
+- `self-relation` — both ends of a connector resolve to the same node id.
+  LikeC4 forbids an element relating to itself, so this connector is dropped
+  entirely (no container/relation created from it) rather than exported as
+  an invalid `X -> X`.
+- `empty-label` — a connector endpoint fell all the way through
+  `extractContainerDetails` to `node-name-fallback` *and* that name is one of
+  Figma's own generic defaults (see `GENERIC_DEFAULT_NAMES` above) — i.e. the
+  shape never had a real title. Still exported (so a legitimately-named
+  element isn't dropped on a false positive), just flagged.
+- `malformed-boundary-label` — a boundary's `rawLabel` spans multiple lines
+  or is unusually long (see "Boundary detection" above). Reported once per
+  boundary (`boundaryMap.has()` gates it) even though many containers can
+  share that boundary.
+
+Every `Issue.connectorId` is the id the Errors-tab card's locate button sends
+in a `focus` message — despite the field name, it's **not always a
+connector**: for `malformed-boundary-label` it's the boundary shape's id (a
+connector can't be blamed for a label typed directly on a box). Don't assume
+`connectorId` resolves to a `CONNECTOR` node when adding new issue kinds.
+`ISSUE_KIND_LABELS`/`ISSUE_KIND_HINTS` in `app.js` need an entry for every
+`IssueKind` or the Errors tab falls back to printing the raw kind string.
+
+## Whole-file scan & cross-page merging
+
+Extraction is factored as `extractRelationsForPage(page)` (all the per-page
+resolution logic) called either once, for `figma.currentPage`
+(`extractRelations()`, the default), or once per page via
+`extractRelationsAllPages()` when the Settings tab's "Scan all pages" toggle
+(`scanAllPages`, persisted like `debugMode`) is on. The all-pages path awaits
+`figma.loadAllPagesAsync()` first — required before touching any page other
+than the current one.
+
+`extractRelationsAllPages()` only **concatenates** each page's
+containers/relations/boundaries/issues — it does no deduplication itself,
+because `code.ts` has no access to `containerCategory()` (that lives in
+`export-shared.js`, a different build target). Instead, `runExtraction()`
+tags the posted `relations` message with `scope: "all-pages"`, and `app.js`
+runs `mergeAcrossPages()` (`export-shared.js`) over the raw result **only**
+for that scope — never for a single-page scan, where two containers sharing
+a name are genuinely distinct elements and must not be collapsed.
+
+Why this exists: a board that only *references* another system usually draws
+it as a plain, childless placeholder box (same name, no technology/
+description), while that system's own board decomposes it into a full
+boundary + containers. Concatenating both pages' results verbatim would
+re-declare that system once per referencing board — exactly the "Duplicate
+element name"/"Duplicate view" class of error this plugin's exports used to
+produce once a team split one board into several and combined the LikeC4
+files by hand. `mergeAcrossPages()` groups containers *and* boundaries by
+`dedupeKey(name)` (accent/case/whitespace-folded — the only identity signal
+available across independently-drawn boards), and within a group a boundary
+always outranks a plain container (score `100 + childrenCount`, vs.
+`(technology ? 2 : 0) + (description ? 1 : 0)` for a container) since it
+carries strictly more information. The losing entities' ids are remapped to
+the winner's: relation endpoints and `boundaryId` references are rewritten,
+relations that collapse into a self-loop are dropped, and relations that
+become exact duplicates of one another are kept once. If you add a new
+per-page field to `Container`/`Boundary` that should survive merging, thread
+it through the canonical entity in `mergeAcrossPages()` — it currently keeps
+the whole object of whichever entity wins, so this is usually automatic,
+but double-check when adding *scoring* inputs (i.e. things that should affect
+which candidate wins, not just ride along).
 
 ## UI (`src/ui/`)
 
@@ -228,6 +322,16 @@ for how these get combined into `dist/ui.html` at build time.
   `containerCategory` needs a matching entry in `CATEGORY_TO_LIKEC4_KIND`
   (`export-likec4.js`) or it silently falls back to a camelCased version of
   the raw `elementType`.
+- `toLikeC4Dsl()`'s `views {}` block isn't just the landscape `index` view: it
+  also emits one System Context (N1) view per software system, plus a
+  Container (N2) view for systems decomposed into containers via a detected
+  boundary box (`groupByBoundary`). A scoped `view of <id> { include * }`
+  auto-expands to the element's nested children per LikeC4's own wildcard
+  semantics, which is exactly what N2 needs but too much for N1 — so the N1
+  view instead lists explicit predicates (`include <id>`, `include <id> ->`,
+  `include -> <id>`) to keep the system as one box plus only its direct
+  neighbors. Standalone `software-system` containers with no boundary
+  decomposition only get an N1 view (there's nothing to show at N2).
 
 ## Relaunch button (canvas → plugin)
 
@@ -240,7 +344,7 @@ node is selected. This plugin uses it:
 
 - `manifest.json` declares two `relaunchButtons`: `view-relation`
   ("View C4 relation") and `view-container` ("View C4 container").
-- During extraction (in `extractRelations()`), every connector gets
+- During extraction (in `extractRelationsForPage()`), every connector gets
   `setRelaunchData({ "view-relation": ... })` and both endpoint shapes get
   `setRelaunchData({ "view-container": ... })`, which (re)attaches the
   buttons each time.

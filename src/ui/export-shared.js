@@ -125,3 +125,152 @@ function containerCategory(c) {
     if (/container|contenedor/.test(type)) return "container";
     return "other";
 }
+
+function dedupeKey(name) {
+    return normalizeSearch(name).replace(/\s+/g, " ").trim();
+}
+
+// Collapses elements that represent the same logical system across multiple
+// pages (see extractRelationsAllPages in code.ts) so a whole-file scan
+// doesn't declare e.g. "Plataforma Acme" once per board that merely
+// references it as a plain placeholder box, in addition to the one board
+// that actually decomposes it into containers - the exact pattern that
+// produced "Duplicate element name" errors when 5 separately-exported
+// per-system files were combined into one LikeC4 workspace by hand.
+//
+// Two kinds of entity can carry the same name: a childless container (a
+// stand-in box drawn on someone else's board) or a boundary (a system that's
+// actually broken down into containers on its own board). A boundary always
+// wins as canonical since it carries strictly more information; between two
+// same-kind candidates, the one with more descriptive fields wins. Only
+// exact name matches (after case/diacritic/whitespace folding) are merged -
+// this is the only identity signal available across independently-drawn
+// boards, so two distinct elements that happen to share a display name
+// within the SAME page are never affected (mergeAcrossPages is only invoked
+// for a whole-file scan, never for a single-page one).
+function mergeAcrossPages(containers, relations, boundaries) {
+    const childrenCount = new Map();
+    containers.forEach((c) => {
+        if (c.boundaryId) {
+            childrenCount.set(
+                c.boundaryId,
+                (childrenCount.get(c.boundaryId) || 0) + 1,
+            );
+        }
+    });
+
+    const entities = [
+        ...(boundaries || []).map((b) => ({
+            key: dedupeKey(b.name),
+            kind: "boundary",
+            id: b.id,
+            score: 100 + (childrenCount.get(b.id) || 0),
+            ref: b,
+        })),
+        ...containers.map((c) => ({
+            key: dedupeKey(c.name),
+            kind: "container",
+            id: c.id,
+            score: (c.technology ? 2 : 0) + (c.description ? 1 : 0),
+            ref: c,
+        })),
+    ];
+
+    const groups = new Map();
+    entities.forEach((e) => {
+        if (!groups.has(e.key)) groups.set(e.key, []);
+        groups.get(e.key).push(e);
+    });
+
+    const idRemap = new Map();
+    const droppedContainerIds = new Set();
+    const droppedBoundaryIds = new Set();
+    const mergeIssues = [];
+    groups.forEach((group) => {
+        let canonical = group[0];
+        group.forEach((e) => {
+            if (e.score > canonical.score) canonical = e;
+        });
+        group.forEach((e) => {
+            idRemap.set(e.id, canonical.id);
+            if (e.id === canonical.id) return;
+            if (e.kind === "container") droppedContainerIds.add(e.id);
+            else droppedBoundaryIds.add(e.id);
+        });
+
+        // Re-typing the same element's card on every board it's referenced
+        // from (instead of copying it) drifts: two boards end up disagreeing
+        // on what "Vendor A" or "Colaboradores de Acme" actually is. Merging
+        // silently keeps only the canonical wording - flag it so the
+        // disagreement doesn't disappear unnoticed along with the losing
+        // copies.
+        if (group.length > 1) {
+            const texts = (field) =>
+                new Set(
+                    group
+                        .filter((e) => e.kind === "container")
+                        .map((e) => (e.ref[field] || "").trim())
+                        .filter(Boolean),
+                );
+            const conflicting = [...texts("description"), ...texts("technology")];
+            if (conflicting.length > 1) {
+                mergeIssues.push({
+                    id: "merge-conflict-" + canonical.id,
+                    connectorId: canonical.id,
+                    connectorLabel: canonical.ref.name.slice(0, 60),
+                    kind: "conflicting-duplicate",
+                    message:
+                        '"' +
+                        canonical.ref.name +
+                        '" is described differently across pages - kept one, check the others: ' +
+                        conflicting.map((t) => '"' + t + '"').join(" vs. ") +
+                        ".",
+                });
+            }
+        }
+    });
+
+    function remap(id) {
+        return idRemap.has(id) ? idRemap.get(id) : id;
+    }
+
+    const mergedContainers = containers
+        .filter((c) => !droppedContainerIds.has(c.id))
+        .map((c) =>
+            c.boundaryId
+                ? { ...c, boundaryId: remap(c.boundaryId) }
+                : c,
+        );
+
+    const mergedBoundaries = (boundaries || []).filter(
+        (b) => !droppedBoundaryIds.has(b.id),
+    );
+
+    // Remapping ids can turn what used to be two distinct cross-system
+    // relations into either a self-loop (both ends collapsed onto the same
+    // canonical element - dropped, LikeC4 forbids it) or an exact duplicate
+    // of another relation (kept once).
+    const seenRelations = new Set();
+    const mergedRelations = [];
+    relations.forEach((r) => {
+        const source = remap(r.source);
+        const target = remap(r.target);
+        if (source === target) return;
+        const relKey = [
+            source,
+            target,
+            r.label || "",
+            r.technology || "",
+            r.bidirectional ? "1" : "0",
+        ].join(" ");
+        if (seenRelations.has(relKey)) return;
+        seenRelations.add(relKey);
+        mergedRelations.push({ ...r, source, target });
+    });
+
+    return {
+        containers: mergedContainers,
+        relations: mergedRelations,
+        boundaries: mergedBoundaries,
+    };
+}

@@ -130,23 +130,36 @@
 
             <div id="export-view" class="tab-view hidden">
                 <div class="export-toolbar">
-                    <div class="format-toggle">
-                        <button
-                            class="format-btn active"
-                            id="format-mermaid"
-                            data-format="mermaid"
-                            title="Text diagram syntax you can paste into any Mermaid-compatible tool (e.g. mermaid.live or Markdown docs) to render the C4 diagram."
+                    <div class="export-toolbar-left">
+                        <div class="format-toggle">
+                            <button
+                                class="format-btn active"
+                                id="format-mermaid"
+                                data-format="mermaid"
+                                title="Text diagram syntax you can paste into any Mermaid-compatible tool (e.g. mermaid.live or Markdown docs) to render the C4 diagram."
+                            >
+                                Mermaid C4
+                            </button>
+                            <button
+                                class="format-btn"
+                                id="format-likec4"
+                                data-format="likec4"
+                                title="Text format for the LikeC4 tool, for teams that keep their C4 model as versioned code."
+                            >
+                                LikeC4 DSL
+                            </button>
+                        </div>
+                        <label
+                            class="likec4-spec-toggle hidden"
+                            id="likec4-spec-toggle"
+                            title="Uncheck to omit the specification {} block, e.g. when pasting model+views into a LikeC4 workspace that already declares its own element kinds."
                         >
-                            Mermaid C4
-                        </button>
-                        <button
-                            class="format-btn"
-                            id="format-likec4"
-                            data-format="likec4"
-                            title="Text format for the LikeC4 tool, for teams that keep their C4 model as versioned code."
-                        >
-                            LikeC4 DSL
-                        </button>
+                            <input
+                                type="checkbox"
+                                id="likec4-spec-checkbox"
+                            />
+                            Include specification
+                        </label>
                     </div>
                     <button id="copy" class="primary">Copy to clipboard</button>
                 </div>
@@ -174,6 +187,31 @@
                             <span class="toggle-slider"></span>
                         </span>
                     </label>
+                    <label class="settings-row" for="scan-all-pages-toggle">
+                        <span class="settings-row-text">
+                            <span class="settings-row-label"
+                                >Scan all pages</span
+                            >
+                            <span class="settings-row-hint"
+                                >Extracts from every page in the file
+                                instead of just the current one, and merges
+                                elements that share a name across pages (e.g.
+                                a system fully decomposed on its own board but
+                                only referenced as a placeholder box
+                                elsewhere). Slower; off by default.</span
+                            >
+                        </span>
+                        <span class="toggle-switch">
+                            <input
+                                type="checkbox"
+                                id="scan-all-pages-toggle"
+                            />
+                            <span class="toggle-slider"></span>
+                        </span>
+                    </label>
+                    <div class="settings-row-hint" id="scan-scope-note">
+                        Scanning only the current page.
+                    </div>
                 </div>
             </div>
         </div>

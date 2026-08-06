@@ -643,16 +643,34 @@ textarea {
     margin-top: 8px;
     font-size: 11px;
 }
-.hidden {
-    display: none;
-}
-
 .export-toolbar {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 8px;
 }
+.export-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.likec4-spec-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--text-muted);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.likec4-spec-toggle input {
+    margin: 0;
+}
+
+.hidden {
+    display: none;
+}
+
 .format-toggle {
     display: inline-flex;
     border: 1px solid var(--border);

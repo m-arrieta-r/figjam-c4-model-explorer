@@ -13,6 +13,17 @@ function debugLog(...args: unknown[]): void {
   if (debugMode) console.log(...args);
 }
 
+// Off by default (scans only the current page, same as before this option
+// existed); toggled from the UI's Settings tab and persisted the same way as
+// debugMode. When on, extraction runs across every page in the file - see
+// extractRelationsAllPages.
+let scanAllPages = false;
+const scanAllPagesLoaded: Promise<void> = figma.clientStorage
+  .getAsync("scanAllPages")
+  .then((value) => {
+    scanAllPages = value === true;
+  });
+
 type ContainerKind = "ui" | "backend" | "database" | null;
 
 interface Container {
@@ -36,6 +47,11 @@ interface Boundary {
   id: string;
   name: string;
   elementType: string | null;
+  // The label text exactly as read off the canvas, before parseBoundaryLabel
+  // trims it down to a usable name - kept so callers can flag a label that
+  // looks malformed (spans multiple lines, unusually long) without having to
+  // re-derive it.
+  rawLabel: string;
 }
 
 interface Relation {
@@ -52,10 +68,17 @@ interface Relation {
 // A problem found while extracting a connector, surfaced in the UI's Errors
 // tab so the user can jump straight to the offending connector on the canvas
 // instead of only seeing its symptom (a missing relation, a bogus container).
-type IssueKind = "unattached-endpoint";
+type IssueKind =
+  | "unattached-endpoint"
+  | "self-relation"
+  | "empty-label"
+  | "malformed-boundary-label";
 
 interface Issue {
   id: string;
+  // The id of the node the UI's "locate" button should focus - historically
+  // always a connector, but a "malformed-boundary-label" issue has no single
+  // connector to blame, so this holds the boundary shape's id instead.
   connectorId: string;
   connectorLabel: string;
   kind: IssueKind;
@@ -323,6 +346,35 @@ function extractContainerDetails(node: BaseNode | null): ContainerDetails {
   };
 }
 
+// Figma/FigJam's own default layer names for shapes nobody ever typed a
+// label into. extractContainerDetails's last resort (node.name) can't tell
+// "this was actually named X" apart from "this is an empty shape that
+// happens to be named Rectangle" - so a connector landing on one of these
+// exports a container whose name is just a stray shape's default name.
+const GENERIC_DEFAULT_NAMES = new Set([
+  "Rectangle",
+  "Ellipse",
+  "Frame",
+  "Group",
+  "Section",
+  "Shape with text",
+  "Sticky",
+  "Sticky note",
+  "Text",
+  "Line",
+  "Arrow",
+  "Star",
+  "Polygon",
+  "Slice",
+]);
+
+function isUnlabeledFallback(details: ContainerDetails): boolean {
+  return (
+    details.nameSource === "node-name-fallback" &&
+    GENERIC_DEFAULT_NAMES.has(details.name)
+  );
+}
+
 function rgbToHex(r: number, g: number, b: number): string {
   const to = (v: number) =>
     Math.round(v * 255)
@@ -435,16 +487,41 @@ function boxArea(box: Rect): number {
 // Splits a boundary label like "Wink [Software System]" into its display
 // name and element type, mirroring splitTechAnnotation's "Name [Annotation]"
 // convention for container shapes - the same shape kit uses the same bracket
-// style for boundary labels.
+// style for boundary labels. Unlike a plain container's card, a boundary
+// label is sometimes typed as a full multi-line "Name\n[Type]\nDescription"
+// block (the same layout a container card uses) rather than a single "Name
+// [Type]" line, so the bracket isn't necessarily the last thing in the
+// string - looking for it anywhere (like findBracketRun/splitTechAnnotation
+// already do for containers) instead of anchoring to the end keeps that case
+// from swallowing the whole raw blob as the name (see isMalformedBoundaryLabel
+// for surfacing that blob as an issue when it still looks off).
 function parseBoundaryLabel(raw: string): {
   name: string;
   elementType: string | null;
 } {
-  const match = raw.match(/^(.*?)\s*\[([^\]]+)\]\s*$/);
-  if (!match) return { name: raw.trim(), elementType: null };
-  const namePart = match[1].trim();
-  const { elementType } = splitTechAnnotation(match[2].trim());
-  return { name: namePart || raw.trim(), elementType };
+  const trimmed = raw.trim();
+  const bracketMatch = trimmed.match(/\[([^\]]+)\]/);
+  if (!bracketMatch || bracketMatch.index === undefined) {
+    const firstLine = trimmed.split("\n")[0].trim();
+    return { name: firstLine || trimmed, elementType: null };
+  }
+  const before = trimmed.slice(0, bracketMatch.index);
+  const { elementType } = splitTechAnnotation(bracketMatch[1].trim());
+  const namePart = before.split("\n")[0].trim();
+  return { name: namePart || trimmed.split("\n")[0].trim(), elementType };
+}
+
+// A boundary label is normally a short "Name [Type]" line. Anything spanning
+// multiple lines, or unusually long, is a sign the shape's text field is
+// mixing in content that belongs to a nested container (or a duplicated
+// paste) rather than a clean boundary tag - see the malformed-boundary-label
+// issue this feeds into.
+const MALFORMED_BOUNDARY_LABEL_LENGTH = 80;
+function isMalformedBoundaryLabel(raw: string): boolean {
+  const trimmed = raw.trim();
+  return (
+    trimmed.includes("\n") || trimmed.length > MALFORMED_BOUNDARY_LABEL_LENGTH
+  );
 }
 
 // A boundary box's label is either its own text (a SHAPE_WITH_TEXT/sticky
@@ -540,7 +617,7 @@ function findContainerBoundary(
       const labelText = findBoundaryLabelText(best.shape, best.box, siblings);
       if (labelText) {
         const { name, elementType } = parseBoundaryLabel(labelText);
-        return { id: best.shape.id, name, elementType };
+        return { id: best.shape.id, name, elementType, rawLabel: labelText };
       }
     }
     if (ancestor.type === "PAGE") break;
@@ -565,13 +642,17 @@ function hasArrowhead(cap: ConnectorStrokeCap): boolean {
 function connectorLabelFor(connector: ConnectorNode): string {
   const text =
     connector.text && connector.text.characters
-      ? connector.text.characters.trim()
+      ? connector.text.characters.trim().replace(/\s+/g, " ")
       : "";
   return text || connector.name.trim() || "(no label)";
 }
 
-function extractRelations(): ExtractResult {
-  const connectors = figma.currentPage.findAllWithCriteria({
+// Scans a single page for connectors and resolves them into containers,
+// boundaries and relations. Factored out from extractRelations (which just
+// calls this with figma.currentPage) so extractRelationsAllPages can run the
+// exact same resolution logic over every page in the file - see below.
+function extractRelationsForPage(page: PageNode): ExtractResult {
+  const connectors = page.findAllWithCriteria({
     types: ["CONNECTOR"],
   });
   const containerMap = new Map<string, Container>();
@@ -593,7 +674,7 @@ function extractRelations(): ExtractResult {
   }
 
   debugLog(
-    `[extract-c4] found ${connectors.length} connector(s) on page "${figma.currentPage.name}"`,
+    `[extract-c4] found ${connectors.length} connector(s) on page "${page.name}"`,
   );
 
   for (const connector of connectors) {
@@ -631,6 +712,27 @@ function extractRelations(): ExtractResult {
 
     const sourceId = reversed ? end.endpointNodeId : start.endpointNodeId;
     const targetId = reversed ? start.endpointNodeId : end.endpointNodeId;
+
+    // A connector whose two ends both resolve to the same shape (usually a
+    // stray connector dragged onto the same sticky by accident) can't be
+    // expressed as a LikeC4 relationship - it forbids an element relating to
+    // itself. Surface it instead of silently exporting the invalid pair.
+    if (sourceId === targetId) {
+      skipped++;
+      issues.push({
+        id: `${connector.id}-self-relation`,
+        connectorId: connector.id,
+        connectorLabel: connectorLabelFor(connector),
+        kind: "self-relation",
+        message:
+          "This connector starts and ends on the same shape - it can't be exported as a relationship.",
+      });
+      debugLog(
+        `[extract-c4] skipping connector ${connector.id}: source and target both resolve to node #${sourceId}`,
+      );
+      continue;
+    }
+
     const sourceNode = figma.getNodeById(sourceId);
     const targetNode = figma.getNodeById(targetId);
 
@@ -645,9 +747,43 @@ function extractRelations(): ExtractResult {
         (bidirectional ? " [bidirectional]" : ""),
     );
 
+    // A shape nobody ever typed a title into falls back to Figma's own
+    // default layer name (e.g. "Shape with text") - flag it so the user
+    // notices instead of finding a nonsense element in the exported model.
+    if (isUnlabeledFallback(sourceDetails)) {
+      issues.push({
+        id: `${connector.id}-empty-label-source`,
+        connectorId: connector.id,
+        connectorLabel: connectorLabelFor(connector),
+        kind: "empty-label",
+        message: `This connector's start shape has no title text - it will export as "${sourceDetails.name}" (Figma's default layer name). Add a title on the shape.`,
+      });
+    }
+    if (isUnlabeledFallback(targetDetails)) {
+      issues.push({
+        id: `${connector.id}-empty-label-target`,
+        connectorId: connector.id,
+        connectorLabel: connectorLabelFor(connector),
+        kind: "empty-label",
+        message: `This connector's end shape has no title text - it will export as "${targetDetails.name}" (Figma's default layer name). Add a title on the shape.`,
+      });
+    }
+
     if (!containerMap.has(sourceId)) {
       const sourceBoundary = findContainerBoundary(sourceNode, endpointIds);
-      if (sourceBoundary) boundaryMap.set(sourceBoundary.id, sourceBoundary);
+      if (sourceBoundary && !boundaryMap.has(sourceBoundary.id)) {
+        boundaryMap.set(sourceBoundary.id, sourceBoundary);
+        if (isMalformedBoundaryLabel(sourceBoundary.rawLabel)) {
+          issues.push({
+            id: `${sourceBoundary.id}-malformed-boundary-label`,
+            connectorId: sourceBoundary.id,
+            connectorLabel: sourceBoundary.name.slice(0, 60),
+            kind: "malformed-boundary-label",
+            message:
+              "This boundary's label spans multiple lines or is unusually long - check its text on the canvas, it may be mixing in a nested container's own title/description.",
+          });
+        }
+      }
       containerMap.set(sourceId, {
         id: sourceId,
         name: sourceDetails.name,
@@ -663,7 +799,19 @@ function extractRelations(): ExtractResult {
     }
     if (!containerMap.has(targetId)) {
       const targetBoundary = findContainerBoundary(targetNode, endpointIds);
-      if (targetBoundary) boundaryMap.set(targetBoundary.id, targetBoundary);
+      if (targetBoundary && !boundaryMap.has(targetBoundary.id)) {
+        boundaryMap.set(targetBoundary.id, targetBoundary);
+        if (isMalformedBoundaryLabel(targetBoundary.rawLabel)) {
+          issues.push({
+            id: `${targetBoundary.id}-malformed-boundary-label`,
+            connectorId: targetBoundary.id,
+            connectorLabel: targetBoundary.name.slice(0, 60),
+            kind: "malformed-boundary-label",
+            message:
+              "This boundary's label spans multiple lines or is unusually long - check its text on the canvas, it may be mixing in a nested container's own title/description.",
+          });
+        }
+      }
       containerMap.set(targetId, {
         id: targetId,
         name: targetDetails.name,
@@ -696,14 +844,18 @@ function extractRelations(): ExtractResult {
         : "";
     // Extract [technology] bracket from anywhere in the label (handles multiline too)
     const bracketMatch = rawLabel.match(/\[([^\]]+)\]/);
-    let label: string;
     let relationTechnology: string | null = null;
+    let label = rawLabel;
     if (bracketMatch) {
       relationTechnology = bracketMatch[1].trim() || null;
-      label = rawLabel.replace(bracketMatch[0], "").replace(/\s+/g, " ").trim();
-    } else {
-      label = rawLabel;
+      label = rawLabel.replace(bracketMatch[0], "");
     }
+    // A FigJam connector label wraps across multiple visual lines far more
+    // often than it carries a [technology] annotation - collapse embedded
+    // newlines/runs of whitespace into single spaces either way, not just on
+    // the branch above, or a wrapped label (the common case) ends up in the
+    // exported DSL/Mermaid as a literal multi-line string.
+    label = label.replace(/\s+/g, " ").trim();
 
     relations.push({
       id: connector.id,
@@ -726,12 +878,43 @@ function extractRelations(): ExtractResult {
 
   const containers: Container[] = Array.from(containerMap.values());
   const boundaries: Boundary[] = Array.from(boundaryMap.values());
-  knownContainerIds = new Set(containerMap.keys());
   debugLog(
     `[extract-c4] resolved ${containers.length} container(s), ` +
-      `${boundaries.length} boundary(ies), skipped ${skipped} connector(s)`,
+      `${boundaries.length} boundary(ies), skipped ${skipped} connector(s) on page "${page.name}"`,
     containers,
     boundaries,
+  );
+  return { containers, relations, boundaries, issues, skipped };
+}
+
+function extractRelations(): ExtractResult {
+  return extractRelationsForPage(figma.currentPage);
+}
+
+// Whole-file scan: resolves every page instead of just the current one, so a
+// board that only references another system with a plain placeholder box
+// (drawn on a different page, where it's actually decomposed into
+// containers) doesn't need a separate manual merge step afterwards - see
+// mergeAcrossPages in export-shared.js, which the UI runs over this
+// function's combined-but-not-yet-deduplicated result.
+async function extractRelationsAllPages(): Promise<ExtractResult> {
+  await figma.loadAllPagesAsync();
+  const containers: Container[] = [];
+  const relations: Relation[] = [];
+  const boundaries: Boundary[] = [];
+  const issues: Issue[] = [];
+  let skipped = 0;
+  for (const page of figma.root.children) {
+    const result = extractRelationsForPage(page);
+    containers.push(...result.containers);
+    relations.push(...result.relations);
+    boundaries.push(...result.boundaries);
+    issues.push(...result.issues);
+    skipped += result.skipped;
+  }
+  debugLog(
+    `[extract-c4] whole-file scan: ${figma.root.children.length} page(s), ` +
+      `${containers.length} raw container(s) before cross-page merge`,
   );
   return { containers, relations, boundaries, issues, skipped };
 }
@@ -748,14 +931,18 @@ function getSelectedContainerId(): string | null {
   return node ? node.id : null;
 }
 
-function runExtraction(
+async function runExtraction(
   focusRelationId: string | null = null,
   focusContainerId: string | null = null,
 ) {
-  const result = extractRelations();
+  const result = scanAllPages
+    ? await extractRelationsAllPages()
+    : extractRelations();
+  knownContainerIds = new Set(result.containers.map((c) => c.id));
   figma.ui.postMessage({
     type: "relations",
     ...result,
+    scope: scanAllPages ? "all-pages" : "current-page",
     focusRelationId,
     focusContainerId,
   });
@@ -951,16 +1138,16 @@ figma.ui.onmessage = async (
   msg: { type: string; id?: string; enabled?: boolean },
 ) => {
   if (msg.type === "ui-ready") {
-    await debugModeLoaded;
-    figma.ui.postMessage({ type: "settings", debugMode });
+    await Promise.all([debugModeLoaded, scanAllPagesLoaded]);
+    figma.ui.postMessage({ type: "settings", debugMode, scanAllPages });
     const focusRelationId =
       figma.command === "view-relation" ? getSelectedConnectorId() : null;
     const focusContainerId =
       figma.command === "view-container" ? getSelectedContainerId() : null;
-    runExtraction(focusRelationId, focusContainerId);
+    await runExtraction(focusRelationId, focusContainerId);
   }
   if (msg.type === "extract") {
-    runExtraction();
+    await runExtraction();
   }
   if (msg.type === "focus" && msg.id) {
     focusNode(msg.id);
@@ -968,6 +1155,11 @@ figma.ui.onmessage = async (
   if (msg.type === "set-debug") {
     debugMode = !!msg.enabled;
     figma.clientStorage.setAsync("debugMode", debugMode);
+  }
+  if (msg.type === "set-scan-all-pages") {
+    scanAllPages = !!msg.enabled;
+    figma.clientStorage.setAsync("scanAllPages", scanAllPages);
+    await runExtraction();
   }
   if (msg.type === "close") {
     figma.closePlugin();
