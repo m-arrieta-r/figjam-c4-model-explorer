@@ -18,8 +18,26 @@ function slugify(name, used) {
     return id;
 }
 
+// LikeC4's grammar reserves a long list of bare words that can't be used as
+// an element id - confirmed by testing each one against the actual `likec4`
+// parser (there's no published exhaustive list). A container literally named
+// one of these (e.g. a "Link" shortener service, a "Title"/"Notes" field, an
+// "Import" job) would otherwise slugify to that exact keyword and break
+// parsing of the *whole* exported file with a cascade of confusing "Expecting
+// token of type '}'" errors, rather than the clean "duplicate name" error a
+// same-name collision produces. Not guaranteed complete - if a new collision
+// shows up, add the word here rather than treating it as a one-off.
+const LIKEC4_RESERVED_WORDS = [
+    "view", "views", "style", "tag", "extend", "include", "exclude",
+    "global", "specification", "import", "notation", "link", "metadata",
+    "description", "technology", "title", "icon", "shape", "color",
+    "opacity", "border", "navigateTo", "autoLayout", "size", "padding",
+    "instanceOf", "with", "where", "this", "it", "and", "true", "false",
+    "likec4lib", "notes",
+];
+
 function buildIdMap(containers, boundaries) {
-    const used = new Set();
+    const used = new Set(LIKEC4_RESERVED_WORDS);
     const idMap = new Map();
     (boundaries || []).forEach((b) => idMap.set(b.id, slugify(b.name, used)));
     containers.forEach((c) => idMap.set(c.id, slugify(c.name, used)));
@@ -148,6 +166,12 @@ function dedupeKey(name) {
 // boards, so two distinct elements that happen to share a display name
 // within the SAME page are never affected (mergeAcrossPages is only invoked
 // for a whole-file scan, never for a single-page one).
+//
+// Returns an extra `issues` array (merged into the Errors tab's list by the
+// caller) with one `conflicting-duplicate` entry per group where the
+// dropped candidates' description/technology text doesn't match the
+// canonical one's - the same real system re-typed slightly differently on
+// each board it's referenced from.
 function mergeAcrossPages(containers, relations, boundaries) {
     const childrenCount = new Map();
     containers.forEach((c) => {
@@ -272,5 +296,6 @@ function mergeAcrossPages(containers, relations, boundaries) {
         containers: mergedContainers,
         relations: mergedRelations,
         boundaries: mergedBoundaries,
+        issues: mergeIssues,
     };
 }

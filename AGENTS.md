@@ -117,6 +117,16 @@ the plugin console (Figma → Plugins → Development → Open Console). That JS
 is the fastest way to see why a shape isn't parsing the way you'd expect —
 ask for it before guessing at a fix.
 
+A connector's own label (`connector.text.characters`, read where relations
+are built, not by `extractContainerDetails`) goes through the same
+`[technology]`-bracket check as containers, but a FigJam label wraps across
+several *visual* lines far more often than it carries a bracket — always
+collapse `\s+` to a single space on the final label (both with and without a
+bracket match), or a wrapped label round-trips into the exported DSL as a
+literal multi-line string. `connectorLabelFor()` (used for Errors-tab issue
+text, not for the exported label itself) collapses the same way for the same
+reason.
+
 ## Boundary detection (System/Container Boundary boxes)
 
 Some boards draw a big box around a cluster of containers — the C4 "System
@@ -167,6 +177,19 @@ by nesting (`export-likec4.js`). `buildIdMap()` takes boundaries as a second,
 optional argument so boundary and container slugs share one collision-free
 namespace.
 
+`slugify()`'s collision set (`used`) also comes pre-seeded, in `buildIdMap()`,
+with `LIKEC4_RESERVED_WORDS` - a container literally named e.g. "Link",
+"Title", or "Import" would otherwise slugify to that exact LikeC4 keyword and
+break parsing of the *entire* exported file (a cascade of confusing
+"Expecting token of type '}'" errors), not just collide like two same-named
+containers would. That list was built by testing candidate words against the
+real `likec4` parser one at a time (`npx likec4 validate` against a
+one-container throwaway workspace) - there's no published exhaustive list of
+LikeC4 keywords, and the grammar is context-sensitive enough that some
+obvious-looking candidates (`model`, `element`, `deployment`) turn out fine
+as identifiers while less obvious ones (`with`, `it`, `notes`, `true`) don't.
+If you hit a new one, add it to the list rather than filing it as a one-off.
+
 ## Errors tab (Issue system)
 
 `Issue` (`code.ts`) is how extraction surfaces "this connector/shape looks
@@ -189,14 +212,21 @@ after the fact:
   or is unusually long (see "Boundary detection" above). Reported once per
   boundary (`boundaryMap.has()` gates it) even though many containers can
   share that boundary.
+- `conflicting-duplicate` — whole-file-scan only, raised by
+  `mergeAcrossPages()` (`export-shared.js`, not `code.ts` — see "Whole-file
+  scan" below), when two pages' stand-ins for the same element have
+  different description/technology text. Not part of `code.ts`'s `IssueKind`
+  union since it can only exist post-merge, in the UI layer.
 
 Every `Issue.connectorId` is the id the Errors-tab card's locate button sends
 in a `focus` message — despite the field name, it's **not always a
-connector**: for `malformed-boundary-label` it's the boundary shape's id (a
-connector can't be blamed for a label typed directly on a box). Don't assume
-`connectorId` resolves to a `CONNECTOR` node when adding new issue kinds.
-`ISSUE_KIND_LABELS`/`ISSUE_KIND_HINTS` in `app.js` need an entry for every
-`IssueKind` or the Errors tab falls back to printing the raw kind string.
+connector**: for `malformed-boundary-label`/`conflicting-duplicate` it's a
+boundary or container shape's id (neither has a single connector to blame).
+Don't assume `connectorId` resolves to a `CONNECTOR` node when adding new
+issue kinds. `ISSUE_KIND_LABELS`/`ISSUE_KIND_HINTS` in `app.js` need an entry
+for every issue kind (both `code.ts`'s `IssueKind` and
+`mergeAcrossPages()`'s `conflicting-duplicate`) or the Errors tab falls back
+to printing the raw kind string.
 
 ## Whole-file scan & cross-page merging
 
@@ -238,6 +268,17 @@ it through the canonical entity in `mergeAcrossPages()` — it currently keeps
 the whole object of whichever entity wins, so this is usually automatic,
 but double-check when adding *scoring* inputs (i.e. things that should affect
 which candidate wins, not just ride along).
+
+Confirmed against a real board split: the same "childless stub vs. fully
+decomposed" system showed up with *different* description text on different
+pages more than once (people re-type a reference card instead of copying
+it — real examples seen: "Vendor A", "Vendor B", "Colaboradores de Acme" each
+had 2+ distinct wordings across boards). `mergeAcrossPages()` picking a
+winner by score alone would silently discard that disagreement, so it also
+diffs description/technology text across every `container`-kind member of a
+group (boundaries don't carry either field) and raises one
+`conflicting-duplicate` issue per group that disagrees — see "Errors tab"
+above.
 
 ## UI (`src/ui/`)
 

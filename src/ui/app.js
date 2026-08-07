@@ -660,6 +660,7 @@ const ISSUE_KIND_LABELS = {
     "self-relation": "Self-relation",
     "empty-label": "Empty label",
     "malformed-boundary-label": "Malformed boundary label",
+    "conflicting-duplicate": "Conflicting duplicate",
 };
 const ISSUE_KIND_HINTS = {
     "unattached-endpoint":
@@ -670,6 +671,8 @@ const ISSUE_KIND_HINTS = {
         "One end of this connector has no title text of its own.",
     "malformed-boundary-label":
         "This boundary box's label text looks malformed (multi-line or too long).",
+    "conflicting-duplicate":
+        "This element was drawn on multiple pages with different text - only one copy was kept.",
 };
 
 function issueKindBadgeHtml(kind) {
@@ -1117,7 +1120,7 @@ window.onmessage = (event) => {
         currentContainers = scoped.containers;
         currentRelations = scoped.relations;
         currentBoundaries = scoped.boundaries;
-        currentIssues = msg.issues || [];
+        currentIssues = (msg.issues || []).concat(scoped.issues || []);
         if (msg.focusRelationId) {
             selectedRelationId = msg.focusRelationId;
             showTab("relations");
