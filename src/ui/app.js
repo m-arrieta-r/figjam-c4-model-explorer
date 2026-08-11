@@ -35,10 +35,13 @@ const tabButtons = document.querySelectorAll(".tab-btn");
 const tabViews = {
     relations: document.getElementById("relations-view"),
     containers: document.getElementById("containers-view"),
+    landscape: document.getElementById("landscape-view"),
     errors: document.getElementById("errors-view"),
     export: document.getElementById("export-view"),
     settings: document.getElementById("settings-view"),
 };
+const landscapeEl = document.getElementById("landscape");
+const landscapeCountEl = document.getElementById("landscape-count");
 
 function renderExportOutput() {
     mermaidOutput.value =
@@ -49,7 +52,13 @@ function renderExportOutput() {
                   currentBoundaries,
                   includeLikeC4Specification,
               )
-            : toMermaidC4(currentContainers, currentRelations, currentBoundaries);
+            : exportFormat === "systems"
+              ? toSoftwareSystemsDsl(
+                    currentContainers,
+                    currentBoundaries,
+                    includeLikeC4Specification,
+                )
+              : toMermaidC4(currentContainers, currentRelations, currentBoundaries);
     copyStatus.textContent = "";
 }
 
@@ -77,7 +86,10 @@ formatButtons.forEach((btn) => {
     btn.onclick = () => {
         exportFormat = btn.dataset.format;
         formatButtons.forEach((b) => b.classList.toggle("active", b === btn));
-        likeC4SpecToggleEl.classList.toggle("hidden", exportFormat !== "likec4");
+        likeC4SpecToggleEl.classList.toggle(
+            "hidden",
+            exportFormat !== "likec4" && exportFormat !== "systems",
+        );
         renderExportOutput();
     };
 });
@@ -120,6 +132,7 @@ searchInputEl.addEventListener("input", () => {
     searchClearEl.style.display = searchQuery ? "inline-flex" : "none";
     renderContainers();
     renderRelations();
+    renderLandscape();
 });
 
 searchClearEl.onclick = () => {
@@ -128,6 +141,7 @@ searchClearEl.onclick = () => {
     searchClearEl.style.display = "none";
     renderContainers();
     renderRelations();
+    renderLandscape();
     searchInputEl.focus();
 };
 
@@ -357,6 +371,84 @@ function renderContainers() {
         hideContainerDetail();
     }
 }
+
+// Landscape tab: just the software systems seen on the current board (no
+// containers/components, no external systems, no people) - see
+// collectSoftwareSystems in export-shared.js, shared with the "Software
+// Systems" export format so the tab and that export never disagree on what
+// counts as a system. A system decomposed into containers on this board (a
+// detected Boundary) and one that's only a plain referenced stub both render
+// the same way here, flattened - this tab is about identity, not structure.
+function renderLandscape() {
+    const systems = collectSoftwareSystems(currentContainers, currentBoundaries);
+    const filtered = systems.filter((s) =>
+        matchesSearch([s.name, s.description, s.technology]),
+    );
+    landscapeCountEl.textContent =
+        filtered.length === systems.length
+            ? systems.length
+            : filtered.length + "/" + systems.length;
+    landscapeEl.innerHTML = "";
+    if (systems.length === 0) {
+        landscapeEl.innerHTML = emptyStateHtml(
+            EMPTY_ICON_SVG,
+            "No software systems yet",
+            "Run Refresh to extract shapes from the FigJam canvas.",
+        );
+        return;
+    }
+    if (filtered.length === 0) {
+        landscapeEl.innerHTML = emptyStateHtml(
+            EMPTY_ICON_SVG,
+            "No matches",
+            "No software systems match your search.",
+        );
+        return;
+    }
+    filtered.forEach((s) => {
+        const item = document.createElement("div");
+        item.className = "card container-card";
+        item.setAttribute("data-id", s.id);
+
+        const header = document.createElement("div");
+        header.className = "container-card-header";
+        header.innerHTML =
+            '<span class="name">' +
+            escapeHtml(s.name) +
+            "</span>" +
+            fallbackWarningHtml(s.isFallback) +
+            '<span class="header-badges">' +
+            (s.decomposed
+                ? '<span class="type-badge" style="background: #fdf1e0; color: #b56a00;" ' +
+                  'title="This system is decomposed into containers on this board (detected via a boundary box).">Decomposed</span>'
+                : '<span class="type-badge" style="background: #eef2f6; color: #64748b;" ' +
+                  'title="Only referenced as a plain box on this board - it may be fully modeled elsewhere.">Referenced</span>') +
+            "</span>";
+        item.appendChild(header);
+
+        const locateBtn = document.createElement("button");
+        locateBtn.className = "icon-btn locate-corner";
+        locateBtn.setAttribute("data-id", s.id);
+        locateBtn.title = "Go to element on canvas";
+        locateBtn.innerHTML = LOCATE_ICON_SVG;
+        item.appendChild(locateBtn);
+
+        if (s.technology || s.description) {
+            item.appendChild(renderContainerMeta(s.technology, s.description));
+        }
+
+        landscapeEl.appendChild(item);
+    });
+}
+
+landscapeEl.addEventListener("click", (event) => {
+    const focusBtn = event.target.closest(".icon-btn");
+    if (!focusBtn) return;
+    const id = focusBtn.getAttribute("data-id");
+    if (id) {
+        parent.postMessage({ pluginMessage: { type: "focus", id } }, "*");
+    }
+});
 
 // Category keys group containers by C4 element kind for the type tabs and
 // badge colors. Badge/dot colors mirror the canvas convention: internal
@@ -1132,6 +1224,7 @@ window.onmessage = (event) => {
         renderContainers();
         renderRelations();
         renderIssues();
+        renderLandscape();
         if (msg.focusRelationId) {
             const card = relationsEl.querySelector(
                 '.relation-card[data-relation-id="' +

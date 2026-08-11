@@ -144,6 +144,43 @@ function containerCategory(c) {
     return "other";
 }
 
+// Software systems are more static than any single board - the same system
+// shows up either as a plain childless container (a stand-in box on a board
+// that only references it) or as a Boundary (a board that fully decomposes
+// it into containers - see findContainerBoundary in code.ts). The Landscape
+// tab and the "Software Systems" export both want just the identity of each
+// system, flattened, regardless of which form it took on the current board -
+// this is the single place that combines both shapes into one list so the
+// tab and the export can never disagree on what counts as a system. No
+// cross-entry dedup is done here (unlike mergeAcrossPages) since this only
+// ever sees one page's worth of data at a time, same as every other
+// per-page rendering in this UI.
+function collectSoftwareSystems(containers, boundaries) {
+    const fromContainers = containers
+        .filter((c) => containerCategory(c) === "software-system")
+        .map((c) => ({
+            id: c.id,
+            name: c.name,
+            technology: c.technology,
+            description: c.description,
+            isFallback: c.labelSource === "node-name-fallback",
+            decomposed: false,
+        }));
+    const fromBoundaries = (boundaries || [])
+        .filter((b) => /system|sistema/.test(normalizeSearch(b.elementType || "")))
+        .map((b) => ({
+            id: b.id,
+            name: b.name,
+            technology: null,
+            description: null,
+            isFallback: false,
+            decomposed: true,
+        }));
+    return [...fromBoundaries, ...fromContainers].sort((a, b) =>
+        a.name.localeCompare(b.name),
+    );
+}
+
 function dedupeKey(name) {
     return normalizeSearch(name).replace(/\s+/g, " ").trim();
 }

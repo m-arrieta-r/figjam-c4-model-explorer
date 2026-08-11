@@ -73,6 +73,10 @@
                     Containers
                     <span class="tab-count" id="container-count">0</span>
                 </button>
+                <button class="tab-btn" data-tab="landscape">
+                    Landscape
+                    <span class="tab-count" id="landscape-count">0</span>
+                </button>
                 <button class="tab-btn" data-tab="errors">
                     Errors
                     <span class="tab-count" id="issue-count">0</span>
@@ -124,6 +128,10 @@
                 ></div>
             </div>
 
+            <div id="landscape-view" class="tab-view hidden">
+                <div id="landscape"></div>
+            </div>
+
             <div id="errors-view" class="tab-view hidden">
                 <div id="issues"></div>
             </div>
@@ -147,6 +155,14 @@
                                 title="Text format for the LikeC4 tool, for teams that keep their C4 model as versioned code."
                             >
                                 LikeC4 DSL
+                            </button>
+                            <button
+                                class="format-btn"
+                                id="format-systems"
+                                data-format="systems"
+                                title="Flat LikeC4 catalog of just the software systems on this board (no containers, no relations, no views) - meant for a separate systems catalog file shared across boards."
+                            >
+                                Software Systems
                             </button>
                         </div>
                         <label

@@ -374,6 +374,49 @@ for how these get combined into `dist/ui.html` at build time.
   neighbors. Standalone `software-system` containers with no boundary
   decomposition only get an N1 view (there's nothing to show at N2).
 
+### Landscape tab
+
+Software systems are more static across boards than any single FigJam file —
+the same system shows up as a plain childless stub on a board that merely
+references it, and as a fully decomposed Boundary on the board that actually
+owns it (see "Whole-file scan & cross-page merging" above). The Landscape
+tab exists to let someone look at *just* that layer — the systems, flattened,
+without the containers/components/people noise — regardless of which shape
+they took on the current board.
+
+`collectSoftwareSystems(containers, boundaries)` (`export-shared.js`) is the
+single source of truth for this list, shared by both the tab
+(`renderLandscape()` in `app.js`) and the "Software Systems" export format
+(`toSoftwareSystemsDsl()` in `export-likec4.js`) so they can never disagree
+on what counts as a system:
+
+- Every container whose `containerCategory()` is `"software-system"` (never
+  `"external-system"` — external systems are deliberately excluded from this
+  tab and export, they're not part of Acme's own landscape).
+- Every `Boundary` whose `elementType` text matches `system`/`sistema`
+  (mirrors `likeC4KindForBoundary`'s own softwareSystem/container split) —
+  these get `decomposed: true` and no technology/description, since a
+  boundary's own text is just its corner label, not a container card.
+
+Each card shows a `Decomposed`/`Referenced` badge (boundary vs. plain
+container) so it's obvious at a glance whether the system is fully modeled on
+*this* board or just a stand-in — but the tab intentionally doesn't try to
+cross-reference other files or a persisted memory of past scans; it only
+reflects what's on the current board/scan scope, exactly like every other
+tab. No id/dedup collision handling either — this is the same one-page (or
+one whole-file-scan) container list every other tab already renders, not an
+additional merge pass.
+
+The **Software Systems** export button (Export tab, next to Mermaid C4 /
+LikeC4 DSL) runs `toSoftwareSystemsDsl()` over that same list: a flat
+`model { softwareSystem <id> "<name>" { ... } }` block, no relations, no
+boundaries-as-containers, no `views {}` — meant to be pasted into (or
+merged with) a separate systems-catalog file shared across every
+per-system `index.c4`, instead of leaving each board's stub declarations of
+systems it merely references scattered across whichever file happened to
+draw a connector to them. Shares the `includeLikeC4Specification` toggle
+with the LikeC4 DSL format (only emits the `softwareS
+
 ## Relaunch button (canvas → plugin)
 
 Figma does **not** let plugins add buttons to its native selection toolbar

@@ -228,3 +228,48 @@ function toLikeC4Dsl(containers, relations, boundaries, includeSpecification) {
 
     return lines.join("\n");
 }
+
+// Flat catalog of just the software systems seen on the current board -
+// no containers, no relations, no boundaries, no views. Meant to be pasted
+// into (or merged with) a separate "systems catalog" file shared across every
+// per-system index.c4, instead of leaving each board's stub declarations of
+// systems it merely references (e.g. "CRM", "Plataforma Acme") scattered
+// across whichever file happened to draw a connector to them.
+function toSoftwareSystemsDsl(containers, boundaries, includeSpecification) {
+    if (includeSpecification === undefined) includeSpecification = true;
+    const systems = collectSoftwareSystems(containers, boundaries);
+    const used = new Set(LIKEC4_RESERVED_WORDS);
+    const idFor = new Map(systems.map((s) => [s.id, slugify(s.name, used)]));
+
+    const lines = [];
+    if (includeSpecification) {
+        const style = LIKEC4_KIND_STYLE.softwareSystem;
+        lines.push(
+            "specification {",
+            "  element softwareSystem {",
+            "    style {",
+            "      shape " + style.shape,
+            "      color " + style.color,
+            "    }",
+            "  }",
+            "}",
+            "",
+        );
+    }
+    lines.push("model {");
+    systems.forEach((s) => {
+        const id = idFor.get(s.id);
+        const hasBody = Boolean(s.technology || s.description);
+        if (!hasBody) {
+            lines.push('  softwareSystem ' + id + ' "' + esc(s.name) + '"');
+            return;
+        }
+        lines.push('  softwareSystem ' + id + ' "' + esc(s.name) + '" {');
+        if (s.technology) lines.push('    technology "' + esc(s.technology) + '"');
+        if (s.description) lines.push('    description "' + esc(s.description) + '"');
+        lines.push("  }");
+    });
+    lines.push("}");
+
+    return lines.join("\n");
+}
