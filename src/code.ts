@@ -961,6 +961,13 @@ interface EndpointSummary {
   resolvedNode?: ResolvedEndpointRef | null;
 }
 
+interface PaintSummary {
+  type: string;
+  visible?: boolean;
+  opacity?: number;
+  color?: { r: number; g: number; b: number; a: number };
+}
+
 interface NodeSummary {
   id: string;
   type: string;
@@ -972,6 +979,65 @@ interface NodeSummary {
   children?: NodeSummary[];
   connectorStart?: EndpointSummary;
   connectorEnd?: EndpointSummary;
+
+  // Geometry
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+
+  // Style
+  fills?: PaintSummary[] | "mixed";
+  strokes?: PaintSummary[] | "mixed";
+  strokeWeight?: number | "mixed";
+  opacity?: number;
+
+  // FRAME / RECTANGLE
+  cornerRadius?: number | "mixed";
+  topLeftRadius?: number;
+  topRightRadius?: number;
+  bottomLeftRadius?: number;
+  bottomRightRadius?: number;
+  clipsContent?: boolean;
+  layoutMode?: string;
+  paddingTop?: number;
+  paddingBottom?: number;
+  paddingLeft?: number;
+  paddingRight?: number;
+  itemSpacing?: number;
+  primaryAxisAlignItems?: string;
+  counterAxisAlignItems?: string;
+
+  // TEXT
+  fontName?: { family: string; style: string } | "mixed";
+  fontSize?: number | "mixed";
+  lineHeight?: unknown;
+  letterSpacing?: unknown;
+  textAlignHorizontal?: string;
+  textAutoResize?: string;
+}
+
+function serializePaints(
+  paints: readonly Paint[] | typeof figma.mixed | undefined,
+): PaintSummary[] | "mixed" | undefined {
+  if (paints === undefined) return undefined;
+  if (paints === figma.mixed) return "mixed";
+  return paints.map((paint) => {
+    const summary: PaintSummary = {
+      type: paint.type,
+      visible: paint.visible,
+      opacity: paint.opacity,
+    };
+    if (paint.type === "SOLID") {
+      summary.color = {
+        r: paint.color.r,
+        g: paint.color.g,
+        b: paint.color.b,
+        a: paint.opacity ?? 1,
+      };
+    }
+    return summary;
+  });
 }
 
 function summarizeEndpoint(
@@ -1007,6 +1073,94 @@ function summarizeNode(node: BaseNode, depth = 4): NodeSummary {
 
   if ("visible" in node) summary.visible = (node as SceneNode).visible;
   if ("removed" in node) summary.removed = (node as SceneNode).removed;
+
+  // Geometry
+  const withLayout = node as unknown as {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+  };
+  if (typeof withLayout.x === "number") summary.x = withLayout.x;
+  if (typeof withLayout.y === "number") summary.y = withLayout.y;
+  if (typeof withLayout.width === "number") summary.width = withLayout.width;
+  if (typeof withLayout.height === "number")
+    summary.height = withLayout.height;
+
+  // Fills / strokes
+  const withPaints = node as unknown as {
+    fills?: readonly Paint[] | typeof figma.mixed;
+    strokes?: readonly Paint[] | typeof figma.mixed;
+    strokeWeight?: number | typeof figma.mixed;
+    opacity?: number;
+  };
+  if ("fills" in node) summary.fills = serializePaints(withPaints.fills);
+  if ("strokes" in node) summary.strokes = serializePaints(withPaints.strokes);
+  if ("strokeWeight" in node) {
+    summary.strokeWeight =
+      withPaints.strokeWeight === figma.mixed
+        ? "mixed"
+        : (withPaints.strokeWeight as number | undefined);
+  }
+  if ("opacity" in node) summary.opacity = withPaints.opacity;
+
+  // FRAME / RECTANGLE corner radius + auto layout
+  const withCorner = node as unknown as {
+    cornerRadius?: number | typeof figma.mixed;
+    topLeftRadius?: number;
+    topRightRadius?: number;
+    bottomLeftRadius?: number;
+    bottomRightRadius?: number;
+    clipsContent?: boolean;
+    layoutMode?: string;
+    paddingTop?: number;
+    paddingBottom?: number;
+    paddingLeft?: number;
+    paddingRight?: number;
+    itemSpacing?: number;
+    primaryAxisAlignItems?: string;
+    counterAxisAlignItems?: string;
+  };
+  if ("cornerRadius" in node) {
+    summary.cornerRadius =
+      withCorner.cornerRadius === figma.mixed
+        ? "mixed"
+        : (withCorner.cornerRadius as number | undefined);
+    if (summary.cornerRadius === "mixed") {
+      summary.topLeftRadius = withCorner.topLeftRadius;
+      summary.topRightRadius = withCorner.topRightRadius;
+      summary.bottomLeftRadius = withCorner.bottomLeftRadius;
+      summary.bottomRightRadius = withCorner.bottomRightRadius;
+    }
+  }
+  if ("clipsContent" in node) summary.clipsContent = withCorner.clipsContent;
+  if ("layoutMode" in node && withCorner.layoutMode !== "NONE") {
+    summary.layoutMode = withCorner.layoutMode;
+    summary.paddingTop = withCorner.paddingTop;
+    summary.paddingBottom = withCorner.paddingBottom;
+    summary.paddingLeft = withCorner.paddingLeft;
+    summary.paddingRight = withCorner.paddingRight;
+    summary.itemSpacing = withCorner.itemSpacing;
+    summary.primaryAxisAlignItems = withCorner.primaryAxisAlignItems;
+    summary.counterAxisAlignItems = withCorner.counterAxisAlignItems;
+  }
+
+  // TEXT properties
+  if (node.type === "TEXT") {
+    const textNode = node as TextNode;
+    summary.fontName =
+      textNode.fontName === figma.mixed
+        ? "mixed"
+        : (textNode.fontName as { family: string; style: string });
+    summary.fontSize =
+      textNode.fontSize === figma.mixed
+        ? "mixed"
+        : (textNode.fontSize as number);
+    summary.lineHeight = textNode.lineHeight;
+    summary.letterSpacing = textNode.letterSpacing;
+    summary.textAlignHorizontal = textNode.textAlignHorizontal;
+    summary.textAutoResize = textNode.textAutoResize;
+  }
 
   const withText = node as unknown as { text?: { characters?: string } };
   if (withText.text && typeof withText.text.characters === "string") {
