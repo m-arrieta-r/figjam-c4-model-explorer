@@ -1,10 +1,11 @@
 {
   "name": "C4 Model Explorer",
-  "id": "extract-c4-from-figjam",
+  "id": "1677709905287715610",
   "api": "1.0.0",
   "editorType": ["figjam"],
   "main": "dist/code.js",
   "ui": "dist/ui.html",
+  "documentAccess": "dynamic-page",
   "relaunchButtons": [
     { "command": "view-relation", "name": "View C4 relation" },
     { "command": "view-container", "name": "View C4 container" }

@@ -653,7 +653,7 @@ function connectorLabelFor(connector: ConnectorNode): string {
 // boundaries and relations. Factored out from extractRelations (which just
 // calls this with figma.currentPage) so extractRelationsAllPages can run the
 // exact same resolution logic over every page in the file - see below.
-function extractRelationsForPage(page: PageNode): ExtractResult {
+async function extractRelationsForPage(page: PageNode): Promise<ExtractResult> {
   const connectors = page.findAllWithCriteria({
     types: ["CONNECTOR"],
   });
@@ -735,8 +735,8 @@ function extractRelationsForPage(page: PageNode): ExtractResult {
       continue;
     }
 
-    const sourceNode = figma.getNodeById(sourceId);
-    const targetNode = figma.getNodeById(targetId);
+    const sourceNode = await figma.getNodeByIdAsync(sourceId);
+    const targetNode = await figma.getNodeByIdAsync(targetId);
 
     const sourceDetails = extractContainerDetails(sourceNode);
     const targetDetails = extractContainerDetails(targetNode);
@@ -889,7 +889,7 @@ function extractRelationsForPage(page: PageNode): ExtractResult {
   return { containers, relations, boundaries, issues, skipped };
 }
 
-function extractRelations(): ExtractResult {
+function extractRelations(): Promise<ExtractResult> {
   return extractRelationsForPage(figma.currentPage);
 }
 
@@ -907,7 +907,7 @@ async function extractRelationsAllPages(): Promise<ExtractResult> {
   const issues: Issue[] = [];
   let skipped = 0;
   for (const page of figma.root.children) {
-    const result = extractRelationsForPage(page);
+    const result = await extractRelationsForPage(page);
     containers.push(...result.containers);
     relations.push(...result.relations);
     boundaries.push(...result.boundaries);
@@ -939,7 +939,7 @@ async function runExtraction(
 ) {
   const result = scanAllPages
     ? await extractRelationsAllPages()
-    : extractRelations();
+    : await extractRelations();
   knownContainerIds = new Set(result.containers.map((c) => c.id));
   figma.ui.postMessage({
     type: "relations",
@@ -1042,16 +1042,16 @@ function serializePaints(
   });
 }
 
-function summarizeEndpoint(
+async function summarizeEndpoint(
   endpoint: ConnectorEndpoint | null,
-): EndpointSummary | undefined {
+): Promise<EndpointSummary | undefined> {
   if (!endpoint) return undefined;
 
   const summary: EndpointSummary = {};
 
   if ("endpointNodeId" in endpoint) {
     summary.endpointNodeId = endpoint.endpointNodeId;
-    const resolved = figma.getNodeById(endpoint.endpointNodeId);
+    const resolved = await figma.getNodeByIdAsync(endpoint.endpointNodeId);
     summary.resolvedNode = resolved
       ? { id: resolved.id, type: resolved.type, name: resolved.name }
       : null;
@@ -1066,7 +1066,7 @@ function summarizeEndpoint(
   return summary;
 }
 
-function summarizeNode(node: BaseNode, depth = 4): NodeSummary {
+async function summarizeNode(node: BaseNode, depth = 4): Promise<NodeSummary> {
   const summary: NodeSummary = {
     id: node.id,
     type: node.type,
@@ -1175,16 +1175,16 @@ function summarizeNode(node: BaseNode, depth = 4): NodeSummary {
 
   if (node.type === "CONNECTOR") {
     const connector = node as ConnectorNode;
-    summary.connectorStart = summarizeEndpoint(connector.connectorStart);
-    summary.connectorEnd = summarizeEndpoint(connector.connectorEnd);
+    summary.connectorStart = await summarizeEndpoint(connector.connectorStart);
+    summary.connectorEnd = await summarizeEndpoint(connector.connectorEnd);
   }
 
   if ("children" in node) {
     const children = (node as ChildrenMixin).children;
     summary.childCount = children.length;
     if (depth > 0) {
-      summary.children = children.map((child) =>
-        summarizeNode(child, depth - 1),
+      summary.children = await Promise.all(
+        children.map((child) => summarizeNode(child, depth - 1)),
       );
     }
   }
@@ -1210,13 +1210,13 @@ figma.on("selectionchange", () => {
   }
 });
 
-function focusNode(id: string) {
-  const node = figma.getNodeById(id);
+async function focusNode(id: string) {
+  const node = await figma.getNodeByIdAsync(id);
 
   if (node) {
     debugLog(
       `[extract-c4] focusNode(${id}) tree (copy this to debug the label extraction):\n` +
-        JSON.stringify(summarizeNode(node), null, 2),
+        JSON.stringify(await summarizeNode(node), null, 2),
     );
   } else {
     debugLog(`[extract-c4] focusNode(${id}): getNodeById returned null`);
@@ -1345,7 +1345,7 @@ figma.ui.onmessage = async (
     await runExtraction();
   }
   if (msg.type === "focus" && msg.id) {
-    focusNode(msg.id);
+    await focusNode(msg.id);
   }
   if (msg.type === "set-debug") {
     debugMode = !!msg.enabled;
@@ -1364,7 +1364,7 @@ figma.ui.onmessage = async (
         error: "Nothing selected. Select a shape or connector on the canvas first.",
       });
     } else {
-      const dump = selection.map((node) => summarizeNode(node));
+      const dump = await Promise.all(selection.map((node) => summarizeNode(node)));
       figma.ui.postMessage({
         type: "dump-selection-result",
         json: JSON.stringify(dump, null, 2),
