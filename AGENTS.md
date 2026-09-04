@@ -392,7 +392,7 @@ on what counts as a system:
 
 - Every container whose `containerCategory()` is `"software-system"` (never
   `"external-system"` — external systems are deliberately excluded from this
-  tab and export, they're not part of Acme's own landscape).
+  tab and export, they're not part of the organization's own landscape).
 - Every `Boundary` whose `elementType` text matches `system`/`sistema`
   (mirrors `likeC4KindForBoundary`'s own softwareSystem/container split) —
   these get `decomposed: true` and no technology/description, since a
