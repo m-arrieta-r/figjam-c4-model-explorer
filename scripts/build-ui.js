@@ -14,6 +14,7 @@ const JS_FILES = [
   "export-shared.js",
   "export-mermaid.js",
   "export-likec4.js",
+  "import.js",
   "app.js",
 ];
 

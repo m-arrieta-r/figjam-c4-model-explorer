@@ -5,7 +5,7 @@ let currentIssues = [];
 let selectedRelationId = null;
 let selectedContainerId = null;
 let searchQuery = "";
-let exportFormat = "mermaid";
+let exportFormat = "likec4";
 let includeLikeC4Specification = false;
 let typeFilter = "all";
 
@@ -37,9 +37,15 @@ const tabViews = {
     containers: document.getElementById("containers-view"),
     landscape: document.getElementById("landscape-view"),
     errors: document.getElementById("errors-view"),
+};
+const overlayViews = {
     export: document.getElementById("export-view"),
+    import: document.getElementById("import-view"),
     settings: document.getElementById("settings-view"),
 };
+const overlayButtons = document.querySelectorAll(".icon-btn[data-overlay]");
+const overlayCloseButtons = document.querySelectorAll("[data-close-overlay]");
+let currentTab = "relations";
 const landscapeEl = document.getElementById("landscape");
 const landscapeCountEl = document.getElementById("landscape-count");
 
@@ -63,23 +69,47 @@ function renderExportOutput() {
 }
 
 function showTab(name) {
+    currentTab = name;
     tabButtons.forEach((btn) =>
         btn.classList.toggle("active", btn.dataset.tab === name),
     );
     Object.entries(tabViews).forEach(([key, el]) =>
         el.classList.toggle("hidden", key !== name),
     );
-    searchBarEl.classList.toggle(
-        "hidden",
-        name === "export" || name === "settings" || name === "errors",
+    Object.values(overlayViews).forEach((el) => el.classList.add("hidden"));
+    overlayButtons.forEach((btn) => btn.classList.remove("active"));
+    searchBarEl.classList.toggle("hidden", name === "errors");
+}
+
+function openOverlay(name) {
+    Object.values(tabViews).forEach((el) => el.classList.add("hidden"));
+    tabButtons.forEach((btn) => btn.classList.remove("active"));
+    Object.entries(overlayViews).forEach(([key, el]) =>
+        el.classList.toggle("hidden", key !== name),
     );
+    overlayButtons.forEach((btn) =>
+        btn.classList.toggle("active", btn.dataset.overlay === name),
+    );
+    searchBarEl.classList.add("hidden");
     if (name === "export") {
         renderExportOutput();
     }
 }
 
+function closeOverlay() {
+    showTab(currentTab);
+}
+
 tabButtons.forEach((btn) => {
     btn.onclick = () => showTab(btn.dataset.tab);
+});
+
+overlayButtons.forEach((btn) => {
+    btn.onclick = () => openOverlay(btn.dataset.overlay);
+});
+
+overlayCloseButtons.forEach((btn) => {
+    btn.onclick = () => closeOverlay();
 });
 
 formatButtons.forEach((btn) => {
@@ -182,6 +212,42 @@ function updateScanScopeNote() {
     scanScopeNoteEl.textContent = scanAllPagesToggle.checked
         ? "Scanning every page - same-name elements across pages are merged automatically."
         : "Scanning only the current page.";
+}
+
+const dumpSelectionBtn = document.getElementById("dump-selection-btn");
+const dumpSelectionCopyBtn = document.getElementById("dump-selection-copy");
+const dumpSelectionOutputEl = document.getElementById("dump-selection-output");
+const dumpSelectionStatusEl = document.getElementById("dump-selection-status");
+
+dumpSelectionBtn.addEventListener("click", () => {
+    dumpSelectionStatusEl.textContent = "";
+    dumpSelectionStatusEl.className = "status";
+    parent.postMessage({ pluginMessage: { type: "dump-selection" } }, "*");
+});
+
+dumpSelectionCopyBtn.addEventListener("click", async () => {
+    try {
+        await navigator.clipboard.writeText(dumpSelectionOutputEl.value);
+        dumpSelectionStatusEl.textContent = "Copied to clipboard.";
+        dumpSelectionStatusEl.className = "status success";
+    } catch {
+        dumpSelectionStatusEl.textContent = "Could not copy to clipboard.";
+        dumpSelectionStatusEl.className = "status error";
+    }
+});
+
+function renderDumpSelectionResult(msg) {
+    if (msg.error) {
+        dumpSelectionOutputEl.value = "";
+        dumpSelectionCopyBtn.disabled = true;
+        dumpSelectionStatusEl.textContent = msg.error;
+        dumpSelectionStatusEl.className = "status error";
+        return;
+    }
+    dumpSelectionOutputEl.value = msg.json;
+    dumpSelectionCopyBtn.disabled = false;
+    dumpSelectionStatusEl.textContent = "Selection dumped.";
+    dumpSelectionStatusEl.className = "status success";
 }
 
 copyBtn.onclick = async () => {
@@ -1241,7 +1307,7 @@ window.onmessage = (event) => {
             if (card)
                 card.scrollIntoView({ behavior: "smooth", block: "center" });
         }
-        if (!tabViews.export.classList.contains("hidden")) {
+        if (!overlayViews.export.classList.contains("hidden")) {
             renderExportOutput();
         }
     }
@@ -1249,6 +1315,18 @@ window.onmessage = (event) => {
     // the canvas: mirror that selection in the Containers tab.
     if (msg.type === "container-selected" && msg.id) {
         openContainerInList(msg.id, true);
+    }
+    if (msg.type === "parsed") {
+        renderImportParsed(msg);
+    }
+    if (msg.type === "imported") {
+        renderImportResult(msg);
+    }
+    if (msg.type === "error") {
+        renderImportError(msg);
+    }
+    if (msg.type === "dump-selection-result") {
+        renderDumpSelectionResult(msg);
     }
 };
 

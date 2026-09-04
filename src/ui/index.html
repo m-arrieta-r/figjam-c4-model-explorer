@@ -59,9 +59,58 @@
                     </svg>
                     <h2>C4 Relations</h2>
                 </div>
-                <button id="refresh" title="Re-extract from canvas">
-                    &#8635; Refresh
-                </button>
+                <div class="title-actions">
+                    <button
+                        class="icon-btn"
+                        id="open-import"
+                        data-overlay="import"
+                        aria-label="Import a LikeC4 diagram"
+                        data-tooltip="Import a LikeC4 diagram"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 3v10" />
+                            <path d="M8 9l4 4 4-4" />
+                            <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+                        </svg>
+                    </button>
+                    <button
+                        class="icon-btn"
+                        id="open-export"
+                        data-overlay="export"
+                        aria-label="Export as Mermaid C4 / LikeC4 DSL"
+                        data-tooltip="Export as Mermaid C4 / LikeC4 DSL"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 13V3" />
+                            <path d="M8 7l4-4 4 4" />
+                            <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+                        </svg>
+                    </button>
+                    <button
+                        class="icon-btn"
+                        id="open-settings"
+                        data-overlay="settings"
+                        aria-label="Settings"
+                        data-tooltip="Settings"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82A1.65 1.65 0 0 0 2.09 15H2a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 3.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H8a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                        </svg>
+                    </button>
+                    <button
+                        class="icon-btn"
+                        id="refresh"
+                        aria-label="Re-extract from canvas"
+                        data-tooltip="Re-extract from canvas"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10" />
+                            <polyline points="1 20 1 14 7 14" />
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                        </svg>
+                    </button>
+                </div>
             </div>
 
             <div class="tabs">
@@ -81,8 +130,6 @@
                     Errors
                     <span class="tab-count" id="issue-count">0</span>
                 </button>
-                <button class="tab-btn" data-tab="export">Export</button>
-                <button class="tab-btn" data-tab="settings">Settings</button>
             </div>
 
             <div class="search-bar" id="search-bar">
@@ -136,12 +183,23 @@
                 <div id="issues"></div>
             </div>
 
-            <div id="export-view" class="tab-view hidden">
+            <div id="export-view" class="tab-view overlay-view hidden">
+                <div class="overlay-header">
+                    <h3>Export</h3>
+                    <button
+                        class="icon-btn overlay-close"
+                        data-close-overlay
+                        aria-label="Close"
+                        data-tooltip="Close"
+                    >
+                        &times;
+                    </button>
+                </div>
                 <div class="export-toolbar">
                     <div class="export-toolbar-left">
                         <div class="format-toggle">
                             <button
-                                class="format-btn active"
+                                class="format-btn"
                                 id="format-mermaid"
                                 data-format="mermaid"
                                 title="Text diagram syntax you can paste into any Mermaid-compatible tool (e.g. mermaid.live or Markdown docs) to render the C4 diagram."
@@ -149,7 +207,7 @@
                                 Mermaid C4
                             </button>
                             <button
-                                class="format-btn"
+                                class="format-btn active"
                                 id="format-likec4"
                                 data-format="likec4"
                                 title="Text format for the LikeC4 tool, for teams that keep their C4 model as versioned code."
@@ -166,7 +224,7 @@
                             </button>
                         </div>
                         <label
-                            class="likec4-spec-toggle hidden"
+                            class="likec4-spec-toggle"
                             id="likec4-spec-toggle"
                             title="Uncheck to omit the specification {} block, e.g. when pasting model+views into a LikeC4 workspace that already declares its own element kinds."
                         >
@@ -183,7 +241,65 @@
                 <div id="copy-status" class="status"></div>
             </div>
 
-            <div id="settings-view" class="tab-view hidden">
+            <div id="import-view" class="tab-view overlay-view hidden import-view">
+                <div class="overlay-header">
+                    <h3>Import</h3>
+                    <button
+                        class="icon-btn overlay-close"
+                        data-close-overlay
+                        aria-label="Close"
+                        data-tooltip="Close"
+                    >
+                        &times;
+                    </button>
+                </div>
+                <p>
+                    Export a view from your LikeC4 project as JSON (this
+                    includes the computed layout — node positions, sizes, and
+                    edge routing):
+                </p>
+                <p><code>npx likec4 export json -o diagram.json</code></p>
+                <p>
+                    Then load the file below (preferred — avoids
+                    clipboard/textarea truncation on large files) or paste its
+                    contents, pick a view, and import it into FigJam.
+                </p>
+                <div class="row">
+                    <input
+                        type="file"
+                        id="import-file-input"
+                        accept=".json,application/json"
+                    />
+                </div>
+                <textarea
+                    id="import-json"
+                    placeholder='{"views": {"index": {...}}}'
+                ></textarea>
+                <div class="row">
+                    <select id="import-view-select" disabled>
+                        <option>Paste JSON to see views…</option>
+                    </select>
+                </div>
+                <div class="row">
+                    <button id="import-btn" class="primary" disabled>
+                        Import into FigJam
+                    </button>
+                </div>
+                <div id="import-status" class="status"></div>
+            </div>
+
+            <div id="settings-view" class="tab-view overlay-view hidden">
+                <div class="overlay-header">
+                    <h3>Settings</h3>
+                    <button
+                        class="icon-btn overlay-close"
+                        data-close-overlay
+                        aria-label="Close"
+                        data-tooltip="Close"
+                    >
+                        &times;
+                    </button>
+                </div>
                 <div class="settings-section">
                     <div class="settings-section-title">General</div>
                     <label class="settings-row" for="debug-mode-toggle">
@@ -228,6 +344,30 @@
                     <div class="settings-row-hint" id="scan-scope-note">
                         Scanning only the current page.
                     </div>
+                </div>
+                <div class="settings-section">
+                    <div class="settings-section-title">Debug</div>
+                    <div class="settings-row-hint settings-section-hint">
+                        Select a shape (or connector) on the canvas, then dump
+                        its raw geometry and style properties as JSON — useful
+                        for reporting or debugging why a shape isn't being
+                        read the way you expect.
+                    </div>
+                    <div class="row">
+                        <button id="dump-selection-btn">
+                            Dump selected element
+                        </button>
+                        <button id="dump-selection-copy" disabled>
+                            Copy
+                        </button>
+                    </div>
+                    <textarea
+                        id="dump-selection-output"
+                        class="debug-output"
+                        readonly
+                        placeholder="The selected element's JSON will appear here…"
+                    ></textarea>
+                    <div id="dump-selection-status" class="status"></div>
                 </div>
             </div>
         </div>

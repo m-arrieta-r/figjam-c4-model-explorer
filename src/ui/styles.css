@@ -57,6 +57,60 @@ body {
     flex-shrink: 0;
     border-radius: var(--radius-sm);
 }
+.title-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.icon-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    color: var(--text-muted);
+}
+.icon-btn svg {
+    width: 14px;
+    height: 14px;
+}
+.icon-btn:hover {
+    color: var(--text);
+}
+.icon-btn.active {
+    background: var(--primary-bg);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+.icon-btn[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 6px;
+    background: #1f2937;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: nowrap;
+    padding: 3px 7px;
+    border-radius: 4px;
+    opacity: 0;
+    transform: translateY(-2px);
+    pointer-events: none;
+    transition:
+        opacity 0.12s ease,
+        transform 0.12s ease;
+    z-index: 20;
+}
+.icon-btn[data-tooltip]:hover::after,
+.icon-btn[data-tooltip]:focus-visible::after {
+    opacity: 1;
+    transform: translateY(0);
+}
 h2 {
     font-size: 14px;
     margin: 0;
@@ -87,6 +141,13 @@ button.primary:hover {
     display: flex;
     gap: 8px;
     align-items: center;
+}
+.row {
+    display: flex;
+    gap: 8px;
+}
+.row > * {
+    flex: 1;
 }
 
 .tabs {
@@ -643,6 +704,53 @@ textarea {
     margin-top: 8px;
     font-size: 11px;
 }
+.status.error {
+    color: var(--danger);
+}
+.status.success {
+    color: #1a8a4a;
+}
+.overlay-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+.overlay-header h3 {
+    font-size: 13px;
+    margin: 0;
+    font-weight: 700;
+}
+.overlay-close {
+    font-size: 16px;
+    color: var(--text-muted);
+}
+.import-view {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.import-view p {
+    margin: 0;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+.import-view code {
+    background: var(--primary-bg);
+    padding: 1px 4px;
+    border-radius: 4px;
+    font-size: 11px;
+}
+.import-view textarea {
+    height: 160px;
+}
+.import-view select {
+    font-size: 12px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    width: 100%;
+}
 .export-toolbar {
     display: flex;
     justify-content: space-between;
@@ -725,6 +833,13 @@ textarea {
     font-size: 11px;
     color: var(--text-muted);
     line-height: 1.4;
+}
+.settings-section-hint {
+    margin-bottom: 8px;
+}
+.debug-output {
+    height: 140px;
+    margin-top: 8px;
 }
 .toggle-switch {
     position: relative;

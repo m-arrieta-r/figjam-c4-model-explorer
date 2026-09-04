@@ -1,3 +1,5 @@
+import { extractViews, importView, importSequenceView } from "./import/import";
+
 figma.showUI(__html__, { width: 480, height: 640, themeColors: true });
 
 // Debug mode is off by default and only toggled on from the UI's Settings
@@ -1289,8 +1291,47 @@ function findPage(node: BaseNode): PageNode | null {
 }
 
 figma.ui.onmessage = async (
-  msg: { type: string; id?: string; enabled?: boolean },
+  msg: {
+    type: string;
+    id?: string;
+    enabled?: boolean;
+    text?: string;
+    viewId?: string;
+  },
 ) => {
+  if (msg.type === "parse" && msg.text) {
+    try {
+      const views = extractViews(JSON.parse(msg.text));
+      const options = Object.entries(views).map(([key, v]) => ({
+        id: key,
+        title: v.title || key,
+        nodeCount: v.nodes.length,
+      }));
+      figma.ui.postMessage({ type: "parsed", options });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      figma.ui.postMessage({ type: "error", message });
+    }
+    return;
+  }
+  if (msg.type === "import" && msg.text && msg.viewId) {
+    try {
+      const views = extractViews(JSON.parse(msg.text));
+      const view = views[msg.viewId];
+      if (!view) {
+        throw new Error(`View "${msg.viewId}" not found in the pasted JSON.`);
+      }
+      const result =
+        view.variant === "sequence"
+          ? await importSequenceView(view)
+          : await importView(view);
+      figma.ui.postMessage({ type: "imported", ...result });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      figma.ui.postMessage({ type: "error", message });
+    }
+    return;
+  }
   if (msg.type === "ui-ready") {
     await Promise.all([debugModeLoaded, scanAllPagesLoaded]);
     figma.ui.postMessage({ type: "settings", debugMode, scanAllPages });
@@ -1314,6 +1355,21 @@ figma.ui.onmessage = async (
     scanAllPages = !!msg.enabled;
     figma.clientStorage.setAsync("scanAllPages", scanAllPages);
     await runExtraction();
+  }
+  if (msg.type === "dump-selection") {
+    const selection = figma.currentPage.selection;
+    if (selection.length === 0) {
+      figma.ui.postMessage({
+        type: "dump-selection-result",
+        error: "Nothing selected. Select a shape or connector on the canvas first.",
+      });
+    } else {
+      const dump = selection.map((node) => summarizeNode(node));
+      figma.ui.postMessage({
+        type: "dump-selection-result",
+        json: JSON.stringify(dump, null, 2),
+      });
+    }
   }
   if (msg.type === "close") {
     figma.closePlugin();

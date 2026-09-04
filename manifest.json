@@ -1,5 +1,5 @@
 {
-  "name": "C4 Diagram Explorer",
+  "name": "C4 Model Explorer",
   "id": "extract-c4-from-figjam",
   "api": "1.0.0",
   "editorType": ["figjam"],
