@@ -471,6 +471,148 @@ async function createBackendContainerNode(node: LikeC4Node): Promise<FrameNode> 
   return frame
 }
 
+// Exact values captured from the user's real FigJam "Core DB" database box
+// (frame 336×186.667 reference size) via the debug extractor: a classic
+// cylinder — two blue-stroked white ellipses (top and bottom caps, each
+// centered on the body rectangle's matching edge, so half of each cap
+// overlaps the body and half extends past it) joined by a white body
+// rectangle with thin blue side rails, holding a centered title/technology/
+// description stack in the same blue as the other C4 cards.
+const DATABASE_REF_WIDTH = 336
+const DATABASE_REF_HEIGHT = 186.667
+const DATABASE = {
+  cornerRadius: 11.2,
+  ellipseHeight: 22.4,
+  borderWidth: 2.8,
+  bodyY: 11.2,
+  contentX: 46.667,
+  contentY: 37.333,
+  itemSpacing: 7.467,
+  titleFontSize: 22.4,
+  techFontSize: 14.933,
+  techOpacity: 0.9,
+  descFontSize: 16.8,
+  descOpacity: 0.95,
+}
+
+async function createDatabaseNode(node: LikeC4Node): Promise<FrameNode> {
+  const width = Math.max(node.width, 60)
+  const height = Math.max(node.height, 60)
+  const scale = Math.min(width / DATABASE_REF_WIDTH, height / DATABASE_REF_HEIGHT)
+  const s = (value: number) => value * scale
+
+  const frame = figma.createFrame()
+  frame.name = node.title
+  frame.resize(width, height)
+  frame.cornerRadius = s(DATABASE.cornerRadius)
+  frame.fills = []
+  frame.strokes = []
+  frame.clipsContent = false
+
+  const ellipseHeight = s(DATABASE.ellipseHeight)
+  const bodyY = s(DATABASE.bodyY)
+  const bodyHeight = height - bodyY * 2
+  const borderWidth = s(DATABASE.borderWidth)
+
+  const bodyRect = figma.createRectangle()
+  bodyRect.name = 'Rectangle'
+  bodyRect.resize(width, bodyHeight)
+  bodyRect.x = 0
+  bodyRect.y = bodyY
+  bodyRect.fills = [{ type: 'SOLID', color: WHITE }]
+  bodyRect.strokes = []
+  frame.appendChild(bodyRect)
+
+  const leftBorder = figma.createRectangle()
+  leftBorder.name = 'Rectangle'
+  leftBorder.resize(borderWidth, bodyHeight)
+  leftBorder.x = 0
+  leftBorder.y = bodyY
+  leftBorder.fills = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  frame.appendChild(leftBorder)
+
+  const rightBorder = figma.createRectangle()
+  rightBorder.name = 'Rectangle'
+  rightBorder.resize(borderWidth, bodyHeight)
+  rightBorder.x = width - borderWidth
+  rightBorder.y = bodyY
+  rightBorder.fills = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  frame.appendChild(rightBorder)
+
+  const topEllipse = figma.createEllipse()
+  topEllipse.name = 'Ellipse'
+  topEllipse.resize(width, ellipseHeight)
+  topEllipse.x = 0
+  topEllipse.y = bodyY - ellipseHeight / 2
+  topEllipse.fills = [{ type: 'SOLID', color: WHITE }]
+  topEllipse.strokes = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  topEllipse.strokeWeight = s(DATABASE.borderWidth)
+  frame.appendChild(topEllipse)
+
+  const bottomEllipse = figma.createEllipse()
+  bottomEllipse.name = 'Ellipse'
+  bottomEllipse.resize(width, ellipseHeight)
+  bottomEllipse.x = 0
+  bottomEllipse.y = bodyY + bodyHeight - ellipseHeight / 2
+  bottomEllipse.fills = [{ type: 'SOLID', color: WHITE }]
+  bottomEllipse.strokes = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  bottomEllipse.strokeWeight = s(DATABASE.borderWidth)
+  frame.appendChild(bottomEllipse)
+
+  const textX = s(DATABASE.contentX)
+  const textWidth = Math.max(width - textX * 2, 4)
+  const itemSpacing = s(DATABASE.itemSpacing)
+  let cursorY = s(DATABASE.contentY)
+
+  const titleText = figma.createText()
+  titleText.name = 'Título'
+  titleText.fontName = { family: 'Inter', style: 'Bold' }
+  titleText.characters = node.title
+  titleText.fontSize = s(DATABASE.titleFontSize)
+  titleText.textAlignHorizontal = 'CENTER'
+  titleText.textAutoResize = 'HEIGHT'
+  titleText.resize(textWidth, titleText.height)
+  titleText.fills = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  titleText.x = textX
+  titleText.y = cursorY
+  frame.appendChild(titleText)
+  cursorY += titleText.height + itemSpacing
+
+  const technology = trimText(likeC4Text(node.technology), 60)
+  const techText = figma.createText()
+  techText.name = 'Tecnología'
+  techText.fontName = { family: 'Inter', style: 'Regular' }
+  techText.characters = technology ? `[Container: ${technology}]` : '[Container: Database]'
+  techText.fontSize = s(DATABASE.techFontSize)
+  techText.textAlignHorizontal = 'CENTER'
+  techText.textAutoResize = 'HEIGHT'
+  techText.resize(textWidth, techText.height)
+  techText.fills = [{ type: 'SOLID', color: BROWSER_CHROME, opacity: DATABASE.techOpacity }]
+  techText.x = textX
+  techText.y = cursorY
+  frame.appendChild(techText)
+  cursorY += techText.height + itemSpacing
+
+  const description = trimText(likeC4Text(node.description))
+  if (description) {
+    const descText = figma.createText()
+    descText.name = 'Descripción'
+    descText.fontName = { family: 'Inter', style: 'Regular' }
+    descText.characters = description
+    descText.fontSize = s(DATABASE.descFontSize)
+    descText.textAlignHorizontal = 'CENTER'
+    descText.textAutoResize = 'HEIGHT'
+    descText.resize(textWidth, descText.height)
+    descText.fills = [{ type: 'SOLID', color: BROWSER_CHROME, opacity: DATABASE.descOpacity }]
+    fitTextToHeight(descText, height - cursorY - s(DATABASE.contentX))
+    descText.x = textX
+    descText.y = cursorY
+    frame.appendChild(descText)
+  }
+
+  return frame
+}
+
 // Exact values captured from the user's real FigJam "Core banking system"
 // internal software system box (frame 336×191 reference size, kind
 // "softwareSystem") via the debug extractor: an orange (#ED8609) rounded
@@ -798,43 +940,98 @@ async function createExternalSystemNode(node: LikeC4Node): Promise<FrameNode> {
 // element cards, the label isn't centered inside the box: it sits pinned to
 // the bottom-left corner, outside the way of whatever is nested inside.
 const LEVEL_BOUNDARY = {
-  cornerRadius: 6,
+  cornerRadius: 3,
   strokeWeight: 4,
   padding: 20,
   fontSize: 20,
+  subtitleFontSize: 12,
+  subtitleOpacity: 0.85,
+  subtitleGap: 2,
 }
 
-async function createLevelBoundaryNode(node: LikeC4Node): Promise<FrameNode> {
+// Turns a LikeC4 kind ("softwareSystem", "external_system", "backend") into
+// the bracketed subtitle c4model.com diagrams print under a boundary's name
+// (e.g. "[Software System]") — split on camelCase/snake/kebab word
+// boundaries and title-case each word, same convention as the hardcoded
+// "[Software System]"/"[Container]" subtitles on the leaf element cards,
+// but derived dynamically since a boundary can wrap any kind of element.
+function kindLabel(kind: string | undefined): string {
+  if (!kind) return ''
+  const words = kind
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+  if (words.length === 0) return ''
+  return `[${words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}]`
+}
+
+// Returns [outline, ...labelTexts] rather than a single parented node.
+// FRAME nodes turn out to have a real FigJam limitation (confirmed via a
+// bare, property-clean repro): dragging a single edge handle scales BOTH
+// axes together — width, height, even descendants' strokeWeight/cornerRadius
+// /fontSize — no matter what targetAspectRatio/constraints say, while a
+// plain FigJam shape (SHAPE_WITH_TEXT, RECTANGLE, TEXT — anything that isn't
+// FRAME) resizes one axis at a time exactly as expected. So the boundary's
+// outline is a ShapeWithTextNode (its own text sublayer left empty; it can't
+// hold two independently-positioned lines) and the title/subtitle are plain
+// TextNodes returned as siblings, not children — the caller
+// (importView/importSequenceView) appends and offsets every element in the
+// returned array together, so visually this is identical to before.
+export async function createLevelBoundaryNode(node: LikeC4Node): Promise<GroupNode> {
   const width = Math.max(node.width, 60)
   const height = Math.max(node.height, 60)
 
-  const frame = figma.createFrame()
-  frame.name = node.title
-  frame.resize(width, height)
-  frame.cornerRadius = LEVEL_BOUNDARY.cornerRadius
-  frame.fills = [{ type: 'SOLID', color: WHITE, opacity: 0 }]
-  frame.strokes = [{ type: 'SOLID', color: BROWSER_CHROME }]
-  frame.strokeWeight = LEVEL_BOUNDARY.strokeWeight
-  frame.clipsContent = false
+  const outline = figma.createRectangle()
+  outline.name = node.title
+  outline.resize(width, height)
+  outline.cornerRadius = LEVEL_BOUNDARY.cornerRadius
+  outline.fills = [{ type: 'SOLID', color: WHITE, opacity: 0 }]
+  outline.strokes = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  outline.strokeWeight = LEVEL_BOUNDARY.strokeWeight
+
+  let titleFontName: FontName
+  try {
+    await figma.loadFontAsync({ family: 'Open Sans', style: 'Bold' })
+    titleFontName = { family: 'Open Sans', style: 'Bold' }
+  } catch {
+    titleFontName = { family: 'Inter', style: 'Bold' }
+  }
+
+  const subtitle = kindLabel(node.kind)
+  let subtitleText: TextNode | null = null
+  if (subtitle) {
+    subtitleText = figma.createText()
+    subtitleText.name = 'Subtítulo'
+    subtitleText.fontName = { family: 'Inter', style: 'Regular' }
+    subtitleText.characters = subtitle
+    subtitleText.fontSize = LEVEL_BOUNDARY.subtitleFontSize
+    subtitleText.textAlignHorizontal = 'LEFT'
+    subtitleText.textAutoResize = 'WIDTH_AND_HEIGHT'
+    subtitleText.fills = [
+      { type: 'SOLID', color: BROWSER_CHROME, opacity: LEVEL_BOUNDARY.subtitleOpacity },
+    ]
+    subtitleText.x = LEVEL_BOUNDARY.padding
+    subtitleText.y = height - subtitleText.height - LEVEL_BOUNDARY.padding
+  }
 
   const labelText = figma.createText()
   labelText.name = 'Título'
-  try {
-    await figma.loadFontAsync({ family: 'Open Sans', style: 'Bold' })
-    labelText.fontName = { family: 'Open Sans', style: 'Bold' }
-  } catch {
-    labelText.fontName = { family: 'Inter', style: 'Bold' }
-  }
+  labelText.fontName = titleFontName
   labelText.characters = node.title
   labelText.fontSize = LEVEL_BOUNDARY.fontSize
   labelText.textAlignHorizontal = 'LEFT'
   labelText.textAutoResize = 'WIDTH_AND_HEIGHT'
   labelText.fills = [{ type: 'SOLID', color: BROWSER_CHROME }]
-  frame.appendChild(labelText)
   labelText.x = LEVEL_BOUNDARY.padding
-  labelText.y = height - labelText.height - LEVEL_BOUNDARY.padding
+  labelText.y = subtitleText
+    ? subtitleText.y - LEVEL_BOUNDARY.subtitleGap - labelText.height
+    : height - labelText.height - LEVEL_BOUNDARY.padding
 
-  return frame
+  const parts = subtitleText ? [outline, labelText, subtitleText] : [outline, labelText]
+  for (const part of parts) figma.currentPage.appendChild(part)
+  const group = figma.group(parts, figma.currentPage)
+  group.name = node.title
+  return group
 }
 
 type Magnet = 'TOP' | 'BOTTOM' | 'LEFT' | 'RIGHT'
@@ -861,6 +1058,50 @@ function pickMagnets(source: NodeGeom, target: NodeGeom): { source: Magnet; targ
   return dy >= 0 ? { source: 'BOTTOM', target: 'TOP' } : { source: 'TOP', target: 'BOTTOM' }
 }
 
+// Calling unlockAspectRatio() on a node before it's been reparented into the
+// document (still "detached" right after figma.createFrame()/createEllipse()
+// etc.) doesn't reliably stick — Figma keeps reporting targetAspectRatio as
+// locked once the shape is actually on the canvas, and a locked ratio makes
+// FigJam's plain edge-handle resize act like the "K" Scale tool (proportionally
+// scaling stroke weight, corner radius and font size along with width/height,
+// not just the one dimension being dragged). So this must be called again
+// after the caller has appended the shape into its container.
+// Recursively pins every descendant of a generated shape to its top-left
+// corner (constraints: MIN/MIN) so resizing the outer shape never scales an
+// inner text/rect/ellipse's own size (and, for text, its font size) — see
+// the comment where this is called in createShapeForNode for why that
+// matters.
+function pinDescendantsTopLeft(node: SceneNode): void {
+  if (!('children' in node)) return
+  for (const child of (node as SceneNode & ChildrenMixin).children) {
+    if ('constraints' in child) {
+      ;(child as SceneNode & ConstraintMixin).constraints = { horizontal: 'MIN', vertical: 'MIN' }
+    }
+    pinDescendantsTopLeft(child as SceneNode)
+  }
+}
+
+// Confirmed by a bare (not-in-a-Section) repro: a boundary/card built with
+// figma.createFrame() comes out at its exact requested size when appended
+// directly to the page, but shrinks by a uniform factor (hitting its own
+// width/height/strokeWeight/cornerRadius, and every text child's fontSize)
+// once it's appended as a child of the diagram's wrapping Section — i.e. the
+// shape's own default constraints (as a Section child) are what's driving a
+// SCALE-style rescale, not anything about how the shape itself was built.
+// Pinning it to MIN/MIN right after container.appendChild(shape) stops that.
+function stabilizeAfterAppend(shape: SceneNode): void {
+  if ('constraints' in shape) {
+    ;(shape as SceneNode & ConstraintMixin).constraints = { horizontal: 'MIN', vertical: 'MIN' }
+  }
+  if ('unlockAspectRatio' in shape) {
+    try {
+      ;(shape as SceneNode & { unlockAspectRatio(): void }).unlockAspectRatio()
+    } catch {
+      // Some node types (e.g. connectors) don't support this — ignore.
+    }
+  }
+}
+
 // Creates the right FigJam shape for a LikeC4 node based on its shape/kind,
 // fully styled and sized but not yet parented or positioned — the caller
 // appends it to a container and sets x/y (Figma reinterprets a node's x/y as
@@ -873,6 +1114,8 @@ async function createShapeForNode(node: LikeC4Node): Promise<SceneNode> {
   const shapeKey = (node.shape || '').toLowerCase()
   const isBrowser = shapeKey === 'browser' || shapeKey === 'mobile' || shapeKey === 'window'
   const isPerson = shapeKey === 'person' || shapeKey === 'actor'
+  const isDatabase =
+    (shapeKey === 'cylinder' || shapeKey === 'storage' || shapeKey === 'database') && !isContainer
   // Only leaf backend nodes get the compact card — a "backend"/"container"
   // node with children (e.g. this components view's root container) is a
   // boundary/group box around other elements, not this card shape.
@@ -885,27 +1128,40 @@ async function createShapeForNode(node: LikeC4Node): Promise<SceneNode> {
   const isComponent = (node.kind || '').toLowerCase() === 'component' && !isContainer
   const isCode = (node.kind || '').toLowerCase() === 'code' && !isContainer
 
-  if (isBrowser) return createBrowserWindowNode(node)
-  if (isPerson) return createPersonIconNode(node)
-  if (isSoftwareSystem) return createSoftwareSystemNode(node)
-  if (isExternalSystem) return createExternalSystemNode(node)
-  if (isComponent) return createComponentNode(node)
-  if (isCode) return createComponentNode(node, 'code')
-  if (isBackend) return createBackendContainerNode(node)
-  if (isContainer) return createLevelBoundaryNode(node)
+  let shape: SceneNode
+  if (isBrowser) shape = await createBrowserWindowNode(node)
+  else if (isPerson) shape = await createPersonIconNode(node)
+  else if (isDatabase) shape = await createDatabaseNode(node)
+  else if (isSoftwareSystem) shape = await createSoftwareSystemNode(node)
+  else if (isExternalSystem) shape = await createExternalSystemNode(node)
+  else if (isComponent) shape = await createComponentNode(node)
+  else if (isCode) shape = await createComponentNode(node, 'code')
+  else if (isBackend) shape = await createBackendContainerNode(node)
+  else if (isContainer) shape = await createLevelBoundaryNode(node)
+  else {
+    const generic = figma.createShapeWithText()
+    generic.shapeType = shapeForNode(node)
+    generic.resize(Math.max(node.width, 1), Math.max(node.height, 1))
 
-  const generic = figma.createShapeWithText()
-  generic.shapeType = shapeForNode(node)
-  generic.resize(Math.max(node.width, 1), Math.max(node.height, 1))
+    const rgb = colorForName(node.color)
+    generic.fills = [{ type: 'SOLID', color: rgb, opacity: isContainer ? 0.12 : 0.85 }]
 
-  const rgb = colorForName(node.color)
-  generic.fills = [{ type: 'SOLID', color: rgb, opacity: isContainer ? 0.12 : 0.85 }]
+    const genericTech = trimText(likeC4Text(node.technology), 60)
+    const label = genericTech ? `${node.title}\n${genericTech}` : node.title
+    generic.text.characters = label
+    generic.text.fontSize = isContainer ? 14 : Math.min(16, Math.max(10, node.width / 12))
+    shape = generic
+  }
 
-  const genericTech = trimText(likeC4Text(node.technology), 60)
-  const label = genericTech ? `${node.title}\n${genericTech}` : node.title
-  generic.text.characters = label
-  generic.text.fontSize = isContainer ? 14 : Math.min(16, Math.max(10, node.width / 12))
-  return generic
+  // Pin every descendant to the top-left corner instead of leaving Figma's
+  // default constraints in place. A "SCALE" constraint (which some FigJam
+  // defaults use) makes a plain edge-handle resize proportionally stretch
+  // that descendant's own size — and for text nodes, its font size — which
+  // is what was making these cards/boundaries look "aspect-locked" even
+  // though nothing here ever calls lockAspectRatio(). Pinning top-left keeps
+  // a resize a pure width/height change of the outer shape.
+  pinDescendantsTopLeft(shape)
+  return shape
 }
 
 export async function importView(view: LikeC4View) {
@@ -972,6 +1228,7 @@ export async function importView(view: LikeC4View) {
     try {
       const shape = await createShapeForNode(node)
       container.appendChild(shape)
+      stabilizeAfterAppend(shape)
       shape.x = node.x + offsetX
       shape.y = node.y + offsetY
       nodesById.set(node.id, shape)
@@ -1131,6 +1388,7 @@ export async function importSequenceView(view: LikeC4View) {
     try {
       const shape = await createShapeForNode(actor)
       section.appendChild(shape)
+      stabilizeAfterAppend(shape)
       shape.x = actor.x + offsetX
       shape.y = offsetY
       const x = actor.x + actor.width / 2 + offsetX

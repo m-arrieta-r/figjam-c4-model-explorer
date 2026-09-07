@@ -1,4 +1,11 @@
-import { extractViews, importView, importSequenceView } from "./import/import";
+import {
+  extractViews,
+  importView,
+  importSequenceView,
+  createLevelBoundaryNode,
+} from "./import/import";
+import type { LikeC4Node } from "./import/likec4-types";
+import { BASE_C4_TEMPLATES } from "./import/base-c4-template";
 
 figma.showUI(__html__, { width: 480, height: 640, themeColors: true });
 
@@ -987,6 +994,8 @@ interface NodeSummary {
   y?: number;
   width?: number;
   height?: number;
+  targetAspectRatio?: { x: number; y: number } | null;
+  constraints?: { horizontal: string; vertical: string };
 
   // Style
   fills?: PaintSummary[] | "mixed";
@@ -1088,6 +1097,18 @@ async function summarizeNode(node: BaseNode, depth = 4): Promise<NodeSummary> {
   if (typeof withLayout.width === "number") summary.width = withLayout.width;
   if (typeof withLayout.height === "number")
     summary.height = withLayout.height;
+
+  // Resize/aspect-lock behavior — diagnostic fields for tracking down why a
+  // shape's on-canvas resize handles might move both axes together (a
+  // non-null targetAspectRatio) or scale a child's own size/font along with
+  // its parent (a "SCALE" constraint) instead of a plain width/height change.
+  const withAspect = node as unknown as {
+    targetAspectRatio?: { x: number; y: number } | null;
+    constraints?: { horizontal: string; vertical: string };
+  };
+  if ("targetAspectRatio" in node)
+    summary.targetAspectRatio = withAspect.targetAspectRatio ?? null;
+  if ("constraints" in node) summary.constraints = withAspect.constraints;
 
   // Fills / strokes
   const withPaints = node as unknown as {
@@ -1268,7 +1289,7 @@ async function focusNode(id: string) {
       debugLog(
         `[extract-c4] focusNode(${id}): node lives on a different page ("${page.name}"), switching`,
       );
-      figma.currentPage = page;
+      await figma.setCurrentPageAsync(page);
     }
     lastProgrammaticSelectionId = sceneNode.id;
     figma.currentPage.selection = [sceneNode];
@@ -1297,6 +1318,7 @@ figma.ui.onmessage = async (
     enabled?: boolean;
     text?: string;
     viewId?: string;
+    level?: number;
   },
 ) => {
   if (msg.type === "parse" && msg.text) {
@@ -1344,6 +1366,19 @@ figma.ui.onmessage = async (
   if (msg.type === "extract") {
     await runExtraction();
   }
+  if (msg.type === "insert-base-template") {
+    try {
+      const template =
+        BASE_C4_TEMPLATES.find((t) => t.level === msg.level) || BASE_C4_TEMPLATES[0];
+      const result = await importView(template.view);
+      figma.ui.postMessage({ type: "imported", source: "base-template", ...result });
+      await runExtraction();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      figma.ui.postMessage({ type: "error", source: "base-template", message });
+    }
+    return;
+  }
   if (msg.type === "focus" && msg.id) {
     await focusNode(msg.id);
   }
@@ -1369,6 +1404,47 @@ figma.ui.onmessage = async (
         type: "dump-selection-result",
         json: JSON.stringify(dump, null, 2),
       });
+    }
+  }
+  if (msg.type === "debug-boundary-test") {
+    // Diagnostic for the "boundary resizes both axes / shrinks on creation"
+    // investigation: builds the exact same boundary frame createLevelBoundaryNode
+    // produces for a real import, but appended directly to the current page
+    // (NOT nested inside a Section like importView does) so we can tell
+    // whether being a Section's child is what's producing the ~4.3% uniform
+    // shrink (width/height/strokeWeight/cornerRadius/fontSize all scaled by
+    // the identical factor) seen in real imports, or whether it happens even
+    // in this bare, minimal case.
+    try {
+      await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+      await figma.loadFontAsync({ family: "Inter", style: "Bold" });
+      const fakeNode: LikeC4Node = {
+        id: "debug-boundary",
+        parent: null,
+        title: "Debug Boundary",
+        kind: "softwareSystem",
+        level: 0,
+        children: [],
+        x: 0,
+        y: 0,
+        width: 760,
+        height: 740,
+      };
+      const group = await createLevelBoundaryNode(fakeNode);
+      const center = figma.viewport.center;
+      figma.currentPage.appendChild(group);
+      group.x = center.x - group.width / 2;
+      group.y = center.y - group.height / 2;
+      figma.currentPage.selection = [group];
+      figma.viewport.scrollAndZoomIntoView([group]);
+      const dump = await summarizeNode(group);
+      figma.ui.postMessage({
+        type: "dump-selection-result",
+        json: JSON.stringify([dump], null, 2),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      figma.ui.postMessage({ type: "dump-selection-result", error: message });
     }
   }
   if (msg.type === "close") {

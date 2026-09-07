@@ -225,6 +225,13 @@ dumpSelectionBtn.addEventListener("click", () => {
     parent.postMessage({ pluginMessage: { type: "dump-selection" } }, "*");
 });
 
+const debugBoundaryTestBtn = document.getElementById("debug-boundary-test-btn");
+debugBoundaryTestBtn.addEventListener("click", () => {
+    dumpSelectionStatusEl.textContent = "";
+    dumpSelectionStatusEl.className = "status";
+    parent.postMessage({ pluginMessage: { type: "debug-boundary-test" } }, "*");
+});
+
 dumpSelectionCopyBtn.addEventListener("click", async () => {
     try {
         await navigator.clipboard.writeText(dumpSelectionOutputEl.value);
@@ -298,7 +305,7 @@ function fallbackWarningHtml(isFallback) {
         : "";
 }
 
-function emptyStateHtml(iconSvg, title, hint) {
+function emptyStateHtml(iconSvg, title, hint, actionHtml) {
     return (
         '<div class="empty">' +
         iconSvg +
@@ -308,7 +315,38 @@ function emptyStateHtml(iconSvg, title, hint) {
         '<span class="empty-hint">' +
         hint +
         "</span>" +
+        (actionHtml || "") +
         "</div>"
+    );
+}
+
+// Shown alongside the "Insert base C4 model" button in the empty Containers
+// state after an insert attempt fails (success is self-evident: the panel
+// stops being empty once runExtraction picks up the new shapes - see the
+// "insert-base-template" handling in code.ts).
+let baseTemplateStatus = "";
+
+const BASE_TEMPLATE_LEVELS = [
+    { level: 1, label: "Level 1 — Context" },
+    { level: 2, label: "Level 2 — Container" },
+    { level: 3, label: "Level 3 — Component" },
+];
+
+function baseTemplateActionHtml() {
+    return (
+        '<div class="base-template-actions">' +
+        BASE_TEMPLATE_LEVELS.map(
+            (l) =>
+                '<button type="button" class="insert-base-template-btn" data-level="' +
+                l.level +
+                '">' +
+                escapeHtml(l.label) +
+                "</button>",
+        ).join("") +
+        "</div>" +
+        (baseTemplateStatus
+            ? '<span class="empty-hint error">' + escapeHtml(baseTemplateStatus) + "</span>"
+            : "")
     );
 }
 
@@ -379,7 +417,8 @@ function renderContainers() {
         containersEl.innerHTML = emptyStateHtml(
             EMPTY_ICON_SVG,
             "No containers yet",
-            "Run Refresh to extract shapes from the FigJam canvas.",
+            "Run Refresh to extract shapes from the FigJam canvas, or insert an example C4 diagram to get started.",
+            baseTemplateActionHtml(),
         );
         hideContainerDetail();
         return;
@@ -670,6 +709,20 @@ const BOTH_ARROW_SVG =
     "</svg>";
 
 containersEl.addEventListener("click", (event) => {
+    const templateBtn = event.target.closest(".insert-base-template-btn");
+    if (templateBtn) {
+        baseTemplateStatus = "";
+        parent.postMessage(
+            {
+                pluginMessage: {
+                    type: "insert-base-template",
+                    level: Number(templateBtn.getAttribute("data-level")),
+                },
+            },
+            "*",
+        );
+        return;
+    }
     const focusBtn = event.target.closest(".icon-btn, .boundary-badge");
     if (focusBtn) {
         const id = focusBtn.getAttribute("data-id");
@@ -706,10 +759,14 @@ function renderRelations() {
             : filtered.length + "/" + currentRelations.length;
     relationsEl.innerHTML = "";
     if (currentRelations.length === 0) {
+        const boardEmpty = currentContainers.length === 0;
         relationsEl.innerHTML = emptyStateHtml(
             EMPTY_ICON_SVG,
             "No relations yet",
-            "No connectors were found between shapes on this page.",
+            boardEmpty
+                ? "No connectors were found between shapes on this page. Insert an example C4 diagram to get started."
+                : "No connectors were found between shapes on this page.",
+            boardEmpty ? baseTemplateActionHtml() : undefined,
         );
         hideRelationDetail();
         return;
@@ -1182,6 +1239,20 @@ function openRelationInList(relationId) {
 }
 
 relationsEl.addEventListener("click", (event) => {
+    const templateBtn = event.target.closest(".insert-base-template-btn");
+    if (templateBtn) {
+        baseTemplateStatus = "";
+        parent.postMessage(
+            {
+                pluginMessage: {
+                    type: "insert-base-template",
+                    level: Number(templateBtn.getAttribute("data-level")),
+                },
+            },
+            "*",
+        );
+        return;
+    }
     const focusBtn = event.target.closest(".icon-btn");
     if (focusBtn) {
         const id = focusBtn.getAttribute("data-id");
@@ -1319,10 +1390,14 @@ window.onmessage = (event) => {
     if (msg.type === "parsed") {
         renderImportParsed(msg);
     }
-    if (msg.type === "imported") {
+    if (msg.type === "imported" && msg.source !== "base-template") {
         renderImportResult(msg);
     }
-    if (msg.type === "error") {
+    if (msg.type === "error" && msg.source === "base-template") {
+        baseTemplateStatus = msg.message;
+        renderContainers();
+        renderRelations();
+    } else if (msg.type === "error") {
         renderImportError(msg);
     }
     if (msg.type === "dump-selection-result") {

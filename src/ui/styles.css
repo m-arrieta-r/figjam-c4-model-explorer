@@ -253,6 +253,17 @@ button.primary:hover {
     display: block;
     color: var(--text-muted);
 }
+.empty .empty-hint.error {
+    color: var(--danger);
+    margin-top: 6px;
+}
+.base-template-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 12px;
+}
 
 /* Type filter chips (Containers tab) */
 .type-filter {
