@@ -1,8 +1,16 @@
 import { likeC4Text, LikeC4Edge, LikeC4Node, LikeC4View } from './likec4-types'
-import { colorForName } from './color'
+import { cardAccentColor, colorForName, RGB } from './color'
 
 export { extractViews } from './likec4-types'
 export type { LikeC4View } from './likec4-types'
+
+// Each dedicated card shape (person, software system, database, ...) has its
+// own default accent color baked in, but a LikeC4 node can carry an explicit
+// `color` (e.g. "blue", "amber", "red" - see color.ts's palette) that should
+// win when present, same as it would in the LikeC4 viewer itself.
+function accentColor(node: LikeC4Node, fallback: RGB): RGB {
+  return node.color ? cardAccentColor(node.color) : fallback
+}
 
 // LikeC4 descriptions can carry long free-form (even multi-paragraph
 // Markdown) text meant for the LikeC4 viewer, not for a fixed-size FigJam
@@ -100,18 +108,19 @@ async function createBrowserWindowNode(node: LikeC4Node): Promise<FrameNode> {
   // nothing distorts; fit-within the node's box based on the reference size.
   const scale = Math.min(width / BROWSER_REF_WIDTH, height / BROWSER_REF_HEIGHT)
   const s = (value: number) => value * scale
+  const chrome = accentColor(node, BROWSER_CHROME)
 
   const frame = figma.createFrame()
   frame.name = node.title
   frame.resize(width, height)
   frame.cornerRadius = s(BROWSER.cornerRadius)
   frame.fills = [{ type: 'SOLID', color: WHITE }]
-  frame.strokes = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  frame.strokes = [{ type: 'SOLID', color: chrome }]
   frame.strokeWeight = s(BROWSER.strokeWeight)
   // Not clipped: the frame's own stroke renders above its children (Figma's
   // default z-order for a container's border), which is what hides the
-  // TitleBar's square corners under the frame's rounded blue border — same
-  // color, so the seam disappears. Both are #1168BD, by design.
+  // TitleBar's square corners under the frame's rounded border - same
+  // color, so the seam disappears.
   frame.clipsContent = false
 
   const barHeight = s(BROWSER.barHeight)
@@ -120,7 +129,7 @@ async function createBrowserWindowNode(node: LikeC4Node): Promise<FrameNode> {
   bar.resize(width, barHeight)
   bar.x = 0
   bar.y = 0
-  bar.fills = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  bar.fills = [{ type: 'SOLID', color: chrome }]
   frame.appendChild(bar)
 
   const dotSize = s(BROWSER.dotSize)
@@ -157,7 +166,7 @@ async function createBrowserWindowNode(node: LikeC4Node): Promise<FrameNode> {
   titleText.textAlignHorizontal = 'CENTER'
   titleText.textAutoResize = 'HEIGHT'
   titleText.resize(textWidth, titleText.height)
-  titleText.fills = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  titleText.fills = [{ type: 'SOLID', color: chrome }]
   titleText.x = bodyPadding
   titleText.y = cursorY
   frame.appendChild(titleText)
@@ -172,7 +181,7 @@ async function createBrowserWindowNode(node: LikeC4Node): Promise<FrameNode> {
   techText.textAlignHorizontal = 'CENTER'
   techText.textAutoResize = 'HEIGHT'
   techText.resize(textWidth, techText.height)
-  techText.fills = [{ type: 'SOLID', color: BROWSER_CHROME, opacity: BROWSER.techOpacity }]
+  techText.fills = [{ type: 'SOLID', color: chrome, opacity: BROWSER.techOpacity }]
   techText.x = bodyPadding
   techText.y = cursorY
   frame.appendChild(techText)
@@ -188,7 +197,7 @@ async function createBrowserWindowNode(node: LikeC4Node): Promise<FrameNode> {
     descText.textAlignHorizontal = 'CENTER'
     descText.textAutoResize = 'HEIGHT'
     descText.resize(textWidth, descText.height)
-    descText.fills = [{ type: 'SOLID', color: BROWSER_CHROME, opacity: BROWSER.descOpacity }]
+    descText.fills = [{ type: 'SOLID', color: chrome, opacity: BROWSER.descOpacity }]
     fitTextToHeight(descText, height - cursorY - bodyPadding)
     descText.x = bodyPadding
     descText.y = cursorY
@@ -243,21 +252,27 @@ async function createPersonIconNode(node: LikeC4Node): Promise<FrameNode> {
   const height = Math.max(node.height, 60)
   const scale = Math.min(width / PERSON_REF_WIDTH, height / PERSON_REF_HEIGHT)
   const s = (value: number) => value * scale
+  const mainColor = accentColor(node, PERSON_MAIN_GREEN)
+  const kindColor = node.color ? mainColor : PERSON_KIND_GREEN
+
+  // The icon's own aspect ratio (369:318) rarely matches the box LikeC4
+  // computes for a person node, so scale is bounded by whichever dimension
+  // is tighter. Sizing the frame to the scaled icon itself — instead of the
+  // full requested box — avoids leaving transparent dead space down the
+  // sides (which read as an oversized, off-center card, and made connectors
+  // land past the visible edge). The caller re-centers this smaller frame
+  // within the original box.
+  const iconWidth = PERSON_REF_WIDTH * scale
+  const iconHeight = PERSON_REF_HEIGHT * scale
 
   const frame = figma.createFrame()
   frame.name = node.title
-  frame.resize(width, height)
+  frame.resize(iconWidth, iconHeight)
   frame.fills = []
   frame.clipsContent = false
 
-  // Center the (uniformly scaled) icon within the node's actual box, since
-  // its aspect ratio (369:318) rarely matches what LikeC4 computes.
-  const iconWidth = PERSON_REF_WIDTH * scale
-  const iconHeight = PERSON_REF_HEIGHT * scale
-  const offsetX = (width - iconWidth) / 2
-  const offsetY = (height - iconHeight) / 2
-  const at = (localX: number) => offsetX + s(localX)
-  const atY = (localY: number) => offsetY + s(localY)
+  const at = (localX: number) => s(localX)
+  const atY = (localY: number) => s(localY)
 
   // Content — white card behind everything else.
   const content = figma.createRectangle()
@@ -275,7 +290,7 @@ async function createPersonIconNode(node: LikeC4Node): Promise<FrameNode> {
   leftLine.resize(s(PERSON.lineLength), 0)
   leftLine.x = at(PERSON.lineMargin)
   leftLine.y = lineY
-  leftLine.strokes = [{ type: 'SOLID', color: PERSON_MAIN_GREEN, opacity: PERSON.lineOpacity }]
+  leftLine.strokes = [{ type: 'SOLID', color: mainColor, opacity: PERSON.lineOpacity }]
   leftLine.strokeWeight = Math.max(s(1), 0.5)
   frame.appendChild(leftLine)
 
@@ -284,7 +299,7 @@ async function createPersonIconNode(node: LikeC4Node): Promise<FrameNode> {
   rightLine.resize(s(PERSON.lineLength), 0)
   rightLine.x = at(PERSON_REF_WIDTH - PERSON.lineMargin - PERSON.lineLength)
   rightLine.y = lineY
-  rightLine.strokes = [{ type: 'SOLID', color: PERSON_MAIN_GREEN, opacity: PERSON.lineOpacity }]
+  rightLine.strokes = [{ type: 'SOLID', color: mainColor, opacity: PERSON.lineOpacity }]
   rightLine.strokeWeight = Math.max(s(1), 0.5)
   frame.appendChild(rightLine)
 
@@ -296,7 +311,7 @@ async function createPersonIconNode(node: LikeC4Node): Promise<FrameNode> {
   border.y = atY(PERSON.borderY)
   border.cornerRadius = s(PERSON.borderRadius)
   border.fills = []
-  border.strokes = [{ type: 'SOLID', color: PERSON_MAIN_GREEN }]
+  border.strokes = [{ type: 'SOLID', color: mainColor }]
   border.strokeWeight = s(PERSON.borderStroke)
   frame.appendChild(border)
 
@@ -307,7 +322,7 @@ async function createPersonIconNode(node: LikeC4Node): Promise<FrameNode> {
   head.x = at(PERSON.headX)
   head.y = atY(PERSON.headY)
   head.fills = [{ type: 'SOLID', color: WHITE }]
-  head.strokes = [{ type: 'SOLID', color: PERSON_MAIN_GREEN }]
+  head.strokes = [{ type: 'SOLID', color: mainColor }]
   head.strokeWeight = s(PERSON.headStroke)
   frame.appendChild(head)
 
@@ -324,7 +339,7 @@ async function createPersonIconNode(node: LikeC4Node): Promise<FrameNode> {
   kindText.textAlignHorizontal = 'CENTER'
   kindText.textAutoResize = 'HEIGHT'
   kindText.resize(textWidth, kindText.height)
-  kindText.fills = [{ type: 'SOLID', color: PERSON_KIND_GREEN }]
+  kindText.fills = [{ type: 'SOLID', color: kindColor }]
   kindText.x = textX
   kindText.y = cursorY
   frame.appendChild(kindText)
@@ -343,7 +358,7 @@ async function createPersonIconNode(node: LikeC4Node): Promise<FrameNode> {
   titleText.textAlignHorizontal = 'CENTER'
   titleText.textAutoResize = 'HEIGHT'
   titleText.resize(textWidth, titleText.height)
-  titleText.fills = [{ type: 'SOLID', color: PERSON_MAIN_GREEN }]
+  titleText.fills = [{ type: 'SOLID', color: mainColor }]
   titleText.x = textX
   titleText.y = cursorY
   frame.appendChild(titleText)
@@ -359,7 +374,7 @@ async function createPersonIconNode(node: LikeC4Node): Promise<FrameNode> {
     descText.textAlignHorizontal = 'CENTER'
     descText.textAutoResize = 'HEIGHT'
     descText.resize(textWidth, descText.height)
-    descText.fills = [{ type: 'SOLID', color: PERSON_MAIN_GREEN }]
+    descText.fills = [{ type: 'SOLID', color: mainColor }]
     fitTextToHeight(descText, atY(PERSON.contentY + PERSON.contentHeight) - cursorY - s(PERSON.paddingSide))
     descText.x = textX
     descText.y = cursorY
@@ -397,13 +412,14 @@ async function createBackendContainerNode(node: LikeC4Node): Promise<FrameNode> 
   const height = Math.max(node.height, 60)
   const scale = Math.min(width / CONTAINER_REF_WIDTH, height / CONTAINER_REF_HEIGHT)
   const s = (value: number) => value * scale
+  const chrome = accentColor(node, BROWSER_CHROME)
 
   const frame = figma.createFrame()
   frame.name = node.title
   frame.resize(width, height)
   frame.cornerRadius = s(CONTAINER.cornerRadius)
   frame.fills = [{ type: 'SOLID', color: WHITE }]
-  frame.strokes = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  frame.strokes = [{ type: 'SOLID', color: chrome }]
   frame.strokeWeight = s(CONTAINER.strokeWeight)
   frame.clipsContent = false
 
@@ -412,7 +428,7 @@ async function createBackendContainerNode(node: LikeC4Node): Promise<FrameNode> 
   promptText.fontName = { family: 'Inter', style: 'Bold' }
   promptText.characters = '>_'
   promptText.fontSize = s(CONTAINER.promptFontSize)
-  promptText.fills = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  promptText.fills = [{ type: 'SOLID', color: chrome }]
   promptText.x = s(CONTAINER.promptX)
   promptText.y = s(CONTAINER.promptY)
   frame.appendChild(promptText)
@@ -430,7 +446,7 @@ async function createBackendContainerNode(node: LikeC4Node): Promise<FrameNode> 
   titleText.textAlignHorizontal = 'CENTER'
   titleText.textAutoResize = 'HEIGHT'
   titleText.resize(textWidth, titleText.height)
-  titleText.fills = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  titleText.fills = [{ type: 'SOLID', color: chrome }]
   titleText.x = textX
   titleText.y = cursorY
   frame.appendChild(titleText)
@@ -445,7 +461,7 @@ async function createBackendContainerNode(node: LikeC4Node): Promise<FrameNode> 
   techText.textAlignHorizontal = 'CENTER'
   techText.textAutoResize = 'HEIGHT'
   techText.resize(textWidth, techText.height)
-  techText.fills = [{ type: 'SOLID', color: BROWSER_CHROME, opacity: CONTAINER.techOpacity }]
+  techText.fills = [{ type: 'SOLID', color: chrome, opacity: CONTAINER.techOpacity }]
   techText.x = textX
   techText.y = cursorY
   frame.appendChild(techText)
@@ -461,7 +477,7 @@ async function createBackendContainerNode(node: LikeC4Node): Promise<FrameNode> 
     descText.textAlignHorizontal = 'CENTER'
     descText.textAutoResize = 'HEIGHT'
     descText.resize(textWidth, descText.height)
-    descText.fills = [{ type: 'SOLID', color: BROWSER_CHROME, opacity: CONTAINER.descOpacity }]
+    descText.fills = [{ type: 'SOLID', color: chrome, opacity: CONTAINER.descOpacity }]
     fitTextToHeight(descText, height - cursorY - s(CONTAINER.contentX))
     descText.x = textX
     descText.y = cursorY
@@ -500,6 +516,7 @@ async function createDatabaseNode(node: LikeC4Node): Promise<FrameNode> {
   const height = Math.max(node.height, 60)
   const scale = Math.min(width / DATABASE_REF_WIDTH, height / DATABASE_REF_HEIGHT)
   const s = (value: number) => value * scale
+  const chrome = accentColor(node, BROWSER_CHROME)
 
   const frame = figma.createFrame()
   frame.name = node.title
@@ -528,7 +545,7 @@ async function createDatabaseNode(node: LikeC4Node): Promise<FrameNode> {
   leftBorder.resize(borderWidth, bodyHeight)
   leftBorder.x = 0
   leftBorder.y = bodyY
-  leftBorder.fills = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  leftBorder.fills = [{ type: 'SOLID', color: chrome }]
   frame.appendChild(leftBorder)
 
   const rightBorder = figma.createRectangle()
@@ -536,7 +553,7 @@ async function createDatabaseNode(node: LikeC4Node): Promise<FrameNode> {
   rightBorder.resize(borderWidth, bodyHeight)
   rightBorder.x = width - borderWidth
   rightBorder.y = bodyY
-  rightBorder.fills = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  rightBorder.fills = [{ type: 'SOLID', color: chrome }]
   frame.appendChild(rightBorder)
 
   const topEllipse = figma.createEllipse()
@@ -545,7 +562,7 @@ async function createDatabaseNode(node: LikeC4Node): Promise<FrameNode> {
   topEllipse.x = 0
   topEllipse.y = bodyY - ellipseHeight / 2
   topEllipse.fills = [{ type: 'SOLID', color: WHITE }]
-  topEllipse.strokes = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  topEllipse.strokes = [{ type: 'SOLID', color: chrome }]
   topEllipse.strokeWeight = s(DATABASE.borderWidth)
   frame.appendChild(topEllipse)
 
@@ -555,7 +572,7 @@ async function createDatabaseNode(node: LikeC4Node): Promise<FrameNode> {
   bottomEllipse.x = 0
   bottomEllipse.y = bodyY + bodyHeight - ellipseHeight / 2
   bottomEllipse.fills = [{ type: 'SOLID', color: WHITE }]
-  bottomEllipse.strokes = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  bottomEllipse.strokes = [{ type: 'SOLID', color: chrome }]
   bottomEllipse.strokeWeight = s(DATABASE.borderWidth)
   frame.appendChild(bottomEllipse)
 
@@ -572,7 +589,7 @@ async function createDatabaseNode(node: LikeC4Node): Promise<FrameNode> {
   titleText.textAlignHorizontal = 'CENTER'
   titleText.textAutoResize = 'HEIGHT'
   titleText.resize(textWidth, titleText.height)
-  titleText.fills = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  titleText.fills = [{ type: 'SOLID', color: chrome }]
   titleText.x = textX
   titleText.y = cursorY
   frame.appendChild(titleText)
@@ -587,7 +604,7 @@ async function createDatabaseNode(node: LikeC4Node): Promise<FrameNode> {
   techText.textAlignHorizontal = 'CENTER'
   techText.textAutoResize = 'HEIGHT'
   techText.resize(textWidth, techText.height)
-  techText.fills = [{ type: 'SOLID', color: BROWSER_CHROME, opacity: DATABASE.techOpacity }]
+  techText.fills = [{ type: 'SOLID', color: chrome, opacity: DATABASE.techOpacity }]
   techText.x = textX
   techText.y = cursorY
   frame.appendChild(techText)
@@ -603,7 +620,7 @@ async function createDatabaseNode(node: LikeC4Node): Promise<FrameNode> {
     descText.textAlignHorizontal = 'CENTER'
     descText.textAutoResize = 'HEIGHT'
     descText.resize(textWidth, descText.height)
-    descText.fills = [{ type: 'SOLID', color: BROWSER_CHROME, opacity: DATABASE.descOpacity }]
+    descText.fills = [{ type: 'SOLID', color: chrome, opacity: DATABASE.descOpacity }]
     fitTextToHeight(descText, height - cursorY - s(DATABASE.contentX))
     descText.x = textX
     descText.y = cursorY
@@ -669,7 +686,7 @@ async function createComponentNode(node: LikeC4Node, variant: 'component' | 'cod
   const scale = Math.min(width / COMPONENT_REF_WIDTH, height / COMPONENT_REF_HEIGHT)
   const s = (value: number) => value * scale
 
-  const chromeColor = variant === 'code' ? CODE_CHROME : BROWSER_CHROME
+  const chromeColor = accentColor(node, variant === 'code' ? CODE_CHROME : BROWSER_CHROME)
   const label = variant === 'code' ? node.notation || 'Código' : 'Component'
 
   const frame = figma.createFrame()
@@ -754,12 +771,24 @@ async function createSoftwareSystemNode(node: LikeC4Node): Promise<FrameNode> {
   const scale = Math.min(width / SOFTWARE_SYSTEM_REF_WIDTH, height / SOFTWARE_SYSTEM_REF_HEIGHT)
   const s = (value: number) => value * scale
 
+  // An explicit LikeC4 color always wins. Absent one: orange is the default
+  // for a standalone software system (a Context diagram's "system in
+  // focus", sitting directly on the canvas), while one nested inside a
+  // boundary - a Landscape group like "Coopenae" or "Cross Systems" - reads
+  // as just another system within scope, so it defaults to the same blue
+  // used for containers/boundaries instead.
+  const color = node.color
+    ? cardAccentColor(node.color)
+    : node.parent
+      ? BROWSER_CHROME
+      : SOFTWARE_SYSTEM_ORANGE
+
   const frame = figma.createFrame()
   frame.name = node.title
   frame.resize(width, height)
   frame.cornerRadius = s(SOFTWARE_SYSTEM.cornerRadius)
   frame.fills = []
-  frame.strokes = [{ type: 'SOLID', color: SOFTWARE_SYSTEM_ORANGE }]
+  frame.strokes = [{ type: 'SOLID', color }]
   frame.strokeWeight = s(SOFTWARE_SYSTEM.strokeWeight)
   frame.clipsContent = false
 
@@ -775,7 +804,7 @@ async function createSoftwareSystemNode(node: LikeC4Node): Promise<FrameNode> {
   subtitleText.textAlignHorizontal = 'CENTER'
   subtitleText.textAutoResize = 'HEIGHT'
   subtitleText.resize(textWidth, subtitleText.height)
-  subtitleText.fills = [{ type: 'SOLID', color: SOFTWARE_SYSTEM_ORANGE }]
+  subtitleText.fills = [{ type: 'SOLID', color }]
 
   const titleText = figma.createText()
   titleText.name = 'Título'
@@ -790,7 +819,7 @@ async function createSoftwareSystemNode(node: LikeC4Node): Promise<FrameNode> {
   titleText.textAlignHorizontal = 'CENTER'
   titleText.textAutoResize = 'HEIGHT'
   titleText.resize(textWidth, titleText.height)
-  titleText.fills = [{ type: 'SOLID', color: SOFTWARE_SYSTEM_ORANGE }]
+  titleText.fills = [{ type: 'SOLID', color }]
 
   const description = trimText(likeC4Text(node.description))
   let descText: TextNode | null = null
@@ -803,7 +832,7 @@ async function createSoftwareSystemNode(node: LikeC4Node): Promise<FrameNode> {
     descText.textAlignHorizontal = 'CENTER'
     descText.textAutoResize = 'HEIGHT'
     descText.resize(textWidth, descText.height)
-    descText.fills = [{ type: 'SOLID', color: SOFTWARE_SYSTEM_ORANGE }]
+    descText.fills = [{ type: 'SOLID', color }]
     const maxDescHeight = height - subtitleText.height - itemSpacing - titleText.height - itemSpacing - s(16) * 2
     fitTextToHeight(descText, maxDescHeight)
   }
@@ -860,13 +889,15 @@ async function createExternalSystemNode(node: LikeC4Node): Promise<FrameNode> {
   const height = Math.max(node.height, 60)
   const scale = Math.min(width / EXTERNAL_SYSTEM_REF_WIDTH, height / EXTERNAL_SYSTEM_REF_HEIGHT)
   const s = (value: number) => value * scale
+  const borderColor = accentColor(node, EXTERNAL_SYSTEM_BORDER_RED)
+  const textColor = node.color ? borderColor : EXTERNAL_SYSTEM_TEXT_RED
 
   const frame = figma.createFrame()
   frame.name = node.title
   frame.resize(width, height)
   frame.cornerRadius = s(EXTERNAL_SYSTEM.cornerRadius)
   frame.fills = []
-  frame.strokes = [{ type: 'SOLID', color: EXTERNAL_SYSTEM_BORDER_RED }]
+  frame.strokes = [{ type: 'SOLID', color: borderColor }]
   frame.strokeWeight = s(EXTERNAL_SYSTEM.strokeWeight)
   frame.clipsContent = false
 
@@ -882,7 +913,7 @@ async function createExternalSystemNode(node: LikeC4Node): Promise<FrameNode> {
   subtitleText.textAlignHorizontal = 'CENTER'
   subtitleText.textAutoResize = 'HEIGHT'
   subtitleText.resize(textWidth, subtitleText.height)
-  subtitleText.fills = [{ type: 'SOLID', color: EXTERNAL_SYSTEM_BORDER_RED }]
+  subtitleText.fills = [{ type: 'SOLID', color: borderColor }]
 
   const titleText = figma.createText()
   titleText.name = 'Título'
@@ -892,7 +923,7 @@ async function createExternalSystemNode(node: LikeC4Node): Promise<FrameNode> {
   titleText.textAlignHorizontal = 'CENTER'
   titleText.textAutoResize = 'HEIGHT'
   titleText.resize(textWidth, titleText.height)
-  titleText.fills = [{ type: 'SOLID', color: EXTERNAL_SYSTEM_TEXT_RED }]
+  titleText.fills = [{ type: 'SOLID', color: textColor }]
 
   const description = trimText(likeC4Text(node.description))
   let descText: TextNode | null = null
@@ -905,7 +936,7 @@ async function createExternalSystemNode(node: LikeC4Node): Promise<FrameNode> {
     descText.textAlignHorizontal = 'CENTER'
     descText.textAutoResize = 'HEIGHT'
     descText.resize(textWidth, descText.height)
-    descText.fills = [{ type: 'SOLID', color: EXTERNAL_SYSTEM_TEXT_RED }]
+    descText.fills = [{ type: 'SOLID', color: textColor }]
     const maxDescHeight = height - subtitleText.height - itemSpacing - titleText.height - itemSpacing - s(16) * 2
     fitTextToHeight(descText, maxDescHeight)
   }
@@ -1032,30 +1063,6 @@ export async function createLevelBoundaryNode(node: LikeC4Node): Promise<GroupNo
   const group = figma.group(parts, figma.currentPage)
   group.name = node.title
   return group
-}
-
-type Magnet = 'TOP' | 'BOTTOM' | 'LEFT' | 'RIGHT'
-interface NodeGeom { x: number; y: number; width: number; height: number }
-
-// 'AUTO' magnets let Figma's elbowed-connector router pick each endpoint's
-// side independently per-segment, which for a long/winding relationship
-// (e.g. one that has to loop around several sibling boxes) can choose a side
-// whose final approach segment faces away from the other node - the
-// TRIANGLE_FILLED arrowhead then reads as pointing "outward" even though
-// connectorEnd/connectorStart (and thus which node is actually the arrow's
-// target) is correct. Picking the magnet from each node's side that
-// literally faces the other node's center keeps the last segment's approach
-// direction sane so the arrowhead visually points into the node it's set on.
-function pickMagnets(source: NodeGeom, target: NodeGeom): { source: Magnet; target: Magnet } {
-  const sourceCenter = { x: source.x + source.width / 2, y: source.y + source.height / 2 }
-  const targetCenter = { x: target.x + target.width / 2, y: target.y + target.height / 2 }
-  const dx = targetCenter.x - sourceCenter.x
-  const dy = targetCenter.y - sourceCenter.y
-
-  if (Math.abs(dx) > Math.abs(dy)) {
-    return dx >= 0 ? { source: 'RIGHT', target: 'LEFT' } : { source: 'LEFT', target: 'RIGHT' }
-  }
-  return dy >= 0 ? { source: 'BOTTOM', target: 'TOP' } : { source: 'TOP', target: 'BOTTOM' }
 }
 
 // Calling unlockAspectRatio() on a node before it's been reparented into the
@@ -1201,10 +1208,6 @@ export async function importView(view: LikeC4View) {
   // not offset by the section's own page position.
 
   const nodesById = new Map<string, SceneNode>()
-  const nodeGeomById = new Map<string, { x: number; y: number; width: number; height: number }>()
-  for (const node of view.nodes) {
-    nodeGeomById.set(node.id, { x: node.x, y: node.y, width: node.width, height: node.height })
-  }
 
   const sortedNodes = [...view.nodes].sort((a, b) => a.level - b.level)
 
@@ -1229,8 +1232,12 @@ export async function importView(view: LikeC4View) {
       const shape = await createShapeForNode(node)
       container.appendChild(shape)
       stabilizeAfterAppend(shape)
-      shape.x = node.x + offsetX
-      shape.y = node.y + offsetY
+      // Most shapes fill their node's full width/height, so this is a no-op;
+      // a person icon can end up narrower/shorter (see createPersonIconNode)
+      // and gets centered in the space LikeC4 allocated for it instead of
+      // sitting flush against its top-left corner.
+      shape.x = node.x + offsetX + (node.width - shape.width) / 2
+      shape.y = node.y + offsetY + (node.height - shape.height) / 2
       nodesById.set(node.id, shape)
     } catch (err) {
       skippedNodes++
@@ -1247,14 +1254,10 @@ export async function importView(view: LikeC4View) {
     if (!source || !target) continue
 
     try {
-      const sourceGeom = nodeGeomById.get(edge.source)
-      const targetGeom = nodeGeomById.get(edge.target)
-      const magnets = sourceGeom && targetGeom ? pickMagnets(sourceGeom, targetGeom) : null
-
       const connector = figma.createConnector()
-      connector.connectorStart = { endpointNodeId: source.id, magnet: magnets?.source ?? 'AUTO' }
-      connector.connectorEnd = { endpointNodeId: target.id, magnet: magnets?.target ?? 'AUTO' }
-      connector.connectorLineType = 'ELBOWED'
+      connector.connectorLineType = 'STRAIGHT'
+      connector.connectorStart = { endpointNodeId: source.id, magnet: 'CENTER' }
+      connector.connectorEnd = { endpointNodeId: target.id, magnet: 'CENTER' }
 
       const rgb = edge.color ? colorForName(edge.color) : EDGE_DEFAULT_GRAY
       connector.strokes = [{ type: 'SOLID', color: rgb }]
@@ -1389,8 +1392,11 @@ export async function importSequenceView(view: LikeC4View) {
       const shape = await createShapeForNode(actor)
       section.appendChild(shape)
       stabilizeAfterAppend(shape)
-      shape.x = actor.x + offsetX
-      shape.y = offsetY
+      // Center a shape that ends up smaller than the uniform actor box (e.g.
+      // a person icon, see createPersonIconNode) instead of leaving it flush
+      // against the top-left corner.
+      shape.x = actor.x + offsetX + (actor.width - shape.width) / 2
+      shape.y = offsetY + (actor.height - shape.height) / 2
       const x = actor.x + actor.width / 2 + offsetX
       lifelineX.set(actor.id, x)
 

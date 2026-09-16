@@ -4,6 +4,19 @@ let currentBoundaries = [];
 let currentIssues = [];
 let selectedRelationId = null;
 let selectedContainerId = null;
+// The metadata editor's data for whichever container the detail panel is
+// currently showing: `detected` is what extraction inferred from the shape's
+// text layers, `override` is the persisted user edit (see readNodeMetadata
+// in code.ts) - both null until a "node-metadata" response arrives for
+// `metadataNodeId`.
+let metadataNodeId = null;
+let metadataDetected = null;
+let metadataOverride = null;
+let metadataStatus = null;
+// Whether the single-container focus view (see openContainerFocus) is the
+// currently displayed view, and which of its inner tabs is active.
+let containerFocusOpen = false;
+let containerFocusTab = "metadata";
 let searchQuery = "";
 let exportFormat = "likec4";
 let includeLikeC4Specification = false;
@@ -16,7 +29,10 @@ const containerCountEl = document.getElementById("container-count");
 const relationCountEl = document.getElementById("relation-count");
 const issueCountEl = document.getElementById("issue-count");
 const relationDetailEl = document.getElementById("relation-detail");
-const containerDetailEl = document.getElementById("container-detail");
+const containerFocusEl = document.getElementById("container-focus-view");
+const cfHeaderEl = document.getElementById("cf-header");
+const cfMetadataPanelEl = document.getElementById("cf-panel-metadata");
+const cfRelationsPanelEl = document.getElementById("cf-panel-relations");
 const mermaidOutput = document.getElementById("mermaid-output");
 const copyBtn = document.getElementById("copy");
 const copyStatus = document.getElementById("copy-status");
@@ -77,6 +93,8 @@ function showTab(name) {
         el.classList.toggle("hidden", key !== name),
     );
     Object.values(overlayViews).forEach((el) => el.classList.add("hidden"));
+    containerFocusEl.classList.add("hidden");
+    containerFocusOpen = false;
     overlayButtons.forEach((btn) => btn.classList.remove("active"));
     searchBarEl.classList.toggle("hidden", name === "errors");
 }
@@ -87,6 +105,8 @@ function openOverlay(name) {
     Object.entries(overlayViews).forEach(([key, el]) =>
         el.classList.toggle("hidden", key !== name),
     );
+    containerFocusEl.classList.add("hidden");
+    containerFocusOpen = false;
     overlayButtons.forEach((btn) =>
         btn.classList.toggle("active", btn.dataset.overlay === name),
     );
@@ -99,6 +119,42 @@ function openOverlay(name) {
 function closeOverlay() {
     showTab(currentTab);
 }
+
+// A single container's own view: its metadata editor and its relations,
+// each in their own tab, replacing the whole list/tabs area rather than
+// expanding inline underneath a card - opening one no longer buries the
+// metadata form under a long list of relations to scroll past. The "×"
+// (via closeOverlay) and the two nav links below return to the combined
+// Containers/Relations tabs.
+function openContainerFocus(containerId) {
+    selectedContainerId = containerId;
+    containerFocusOpen = true;
+    containerFocusTab = "metadata";
+    renderContainerDetail(containerId);
+    Object.values(tabViews).forEach((el) => el.classList.add("hidden"));
+    tabButtons.forEach((btn) => btn.classList.remove("active"));
+    Object.values(overlayViews).forEach((el) => el.classList.add("hidden"));
+    overlayButtons.forEach((btn) => btn.classList.remove("active"));
+    containerFocusEl.classList.remove("hidden");
+    searchBarEl.classList.add("hidden");
+}
+
+function setContainerFocusTab(tab) {
+    containerFocusTab = tab;
+    document.querySelectorAll(".cf-tab-btn").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.cfTab === tab);
+    });
+    cfMetadataPanelEl.classList.toggle("hidden", tab !== "metadata");
+    cfRelationsPanelEl.classList.toggle("hidden", tab !== "relations");
+}
+
+document.querySelectorAll(".cf-tab-btn").forEach((btn) => {
+    btn.onclick = () => setContainerFocusTab(btn.dataset.cfTab);
+});
+document.getElementById("cf-nav-containers").onclick = () =>
+    showTab("containers");
+document.getElementById("cf-nav-relations").onclick = () =>
+    showTab("relations");
 
 tabButtons.forEach((btn) => {
     btn.onclick = () => showTab(btn.dataset.tab);
@@ -281,7 +337,7 @@ const BOUNDARY_ICON_SVG =
 // Badge showing which detected boundary box (see findContainerBoundary in
 // code.ts) a container is enclosed by, if any. Clickable like the locate
 // icons - see the ".boundary-badge" handling in the containersEl/
-// containerDetailEl click listeners - since its data-id is the boundary
+// containerFocusEl click listeners - since its data-id is the boundary
 // shape's own node id, not the container's.
 function boundaryBadgeHtml(container) {
     if (!container || !container.boundaryId) return "";
@@ -343,6 +399,12 @@ function baseTemplateActionHtml() {
                 escapeHtml(l.label) +
                 "</button>",
         ).join("") +
+        '<button type="button" class="empty-import-btn">Importar diagrama LikeC4</button>' +
+        (lastImportInfo
+            ? '<button type="button" class="empty-import-last-btn">Importar último archivo (' +
+              escapeHtml(lastImportInfo.fileName) +
+              ")</button>"
+            : "") +
         "</div>" +
         (baseTemplateStatus
             ? '<span class="empty-hint error">' + escapeHtml(baseTemplateStatus) + "</span>"
@@ -467,13 +529,14 @@ function renderContainers() {
         containersEl.appendChild(item);
     });
 
-    if (
-        selectedContainerId &&
-        filtered.some((c) => c.id === selectedContainerId)
-    ) {
-        renderContainerDetail(selectedContainerId);
-    } else {
-        hideContainerDetail();
+    // Only refresh the focus view's content here (e.g. after a fresh
+    // extraction) - never force it open just because the list re-rendered.
+    if (containerFocusOpen && selectedContainerId) {
+        if (filtered.some((c) => c.id === selectedContainerId)) {
+            renderContainerDetail(selectedContainerId);
+        } else {
+            hideContainerDetail();
+        }
     }
 }
 
@@ -723,6 +786,14 @@ containersEl.addEventListener("click", (event) => {
         );
         return;
     }
+    if (event.target.closest(".empty-import-btn")) {
+        openOverlay("import");
+        return;
+    }
+    if (event.target.closest(".empty-import-last-btn")) {
+        openImportWithLastFile();
+        return;
+    }
     const focusBtn = event.target.closest(".icon-btn, .boundary-badge");
     if (focusBtn) {
         const id = focusBtn.getAttribute("data-id");
@@ -732,23 +803,7 @@ containersEl.addEventListener("click", (event) => {
     }
     const card = event.target.closest(".container-card");
     if (!card) return;
-    const containerId = card.getAttribute("data-id");
-    selectedContainerId = focusBtn
-        ? containerId
-        : selectedContainerId === containerId
-          ? null
-          : containerId;
-    containersEl.querySelectorAll(".container-card").forEach((el) => {
-        el.classList.toggle(
-            "selected",
-            el.getAttribute("data-id") === selectedContainerId,
-        );
-    });
-    if (selectedContainerId) {
-        renderContainerDetail(selectedContainerId);
-    } else {
-        hideContainerDetail();
-    }
+    openContainerFocus(card.getAttribute("data-id"));
 });
 
 function renderRelations() {
@@ -1161,68 +1216,181 @@ function renderContainerDetail(containerId) {
             (r.bidirectional && r.source === containerId),
     );
 
-    containerDetailEl.innerHTML = "";
-
-    const header = document.createElement("div");
-    header.className = "relation-detail-header";
-    header.innerHTML =
+    cfHeaderEl.innerHTML =
         '<span class="cd-header-name-group">' +
         '<span class="cd-header-name">' +
         escapeHtml(container.name) +
         "</span>" +
         boundaryBadgeHtml(container) +
         "</span>" +
-        '<button class="relation-detail-close" title="Close">&times;</button>';
-    containerDetailEl.appendChild(header);
-    header.querySelector(".relation-detail-close").onclick = () => {
-        selectedContainerId = null;
-        hideContainerDetail();
-        containersEl
-            .querySelectorAll(".container-card.selected")
-            .forEach((el) => el.classList.remove("selected"));
+        '<button type="button" class="relation-detail-close" title="Close">&times;</button>';
+    cfHeaderEl.querySelector(".relation-detail-close").onclick = () => {
+        closeOverlay();
     };
 
-    containerDetailEl.appendChild(
+    cfRelationsPanelEl.innerHTML = "";
+    cfRelationsPanelEl.appendChild(
         containerRelationSection("Outgoing", outgoing, containerId),
     );
-    containerDetailEl.appendChild(
+    cfRelationsPanelEl.appendChild(
         containerRelationSection("Incoming", incoming, containerId),
     );
 
-    const card = containersEl.querySelector(
-        '.container-card[data-id="' + containerId + '"]',
-    );
-    if (card) {
-        card.insertAdjacentElement("afterend", containerDetailEl);
+    if (metadataNodeId !== containerId) {
+        metadataDetected = null;
+        metadataOverride = null;
+        metadataStatus = null;
+        parent.postMessage(
+            { pluginMessage: { type: "get-node-metadata", id: containerId } },
+            "*",
+        );
+    }
+    cfMetadataPanelEl.innerHTML = "";
+    cfMetadataPanelEl.appendChild(renderMetadataSection(containerId));
+
+    setContainerFocusTab(containerFocusTab);
+}
+
+// Renders the focus view's "Metadatos" tab: an editable form for the fields
+// inferred from the shape's text layers (title/description/technology/kind),
+// plus two fields with no on-canvas representation (tags, link). A field
+// left blank falls back to whatever extraction auto-detected (shown as its
+// placeholder) instead of erasing it - see applyMetadataOverride in code.ts.
+function renderMetadataSection(containerId) {
+    const section = document.createElement("div");
+
+    if (metadataNodeId !== containerId || !metadataDetected) {
+        const loading = document.createElement("div");
+        loading.className = "cd-section-empty";
+        loading.textContent = "Cargando metadatos...";
+        section.appendChild(loading);
+        return section;
     }
 
-    containerDetailEl.classList.remove("hidden");
+    const detected = metadataDetected;
+    const override = metadataOverride || {};
+
+    const form = document.createElement("form");
+    form.className = "metadata-form";
+
+    const field = (key, labelText, value, placeholder, multiline) => {
+        const wrap = document.createElement("div");
+        wrap.className = "metadata-field";
+        const label = document.createElement("label");
+        label.textContent = labelText;
+        label.htmlFor = "metadata-" + key;
+        const control = document.createElement(multiline ? "textarea" : "input");
+        control.id = "metadata-" + key;
+        control.name = key;
+        if (!multiline) control.type = "text";
+        control.value = value || "";
+        if (placeholder) control.placeholder = placeholder;
+        wrap.appendChild(label);
+        wrap.appendChild(control);
+        form.appendChild(wrap);
+    };
+
+    field("title", "Título", override.title, detected.title);
+    field(
+        "description",
+        "Descripción",
+        override.description,
+        detected.description,
+        true,
+    );
+    field("technology", "Tecnología", override.technology, detected.technology);
+    field("kind", "Tipo (kind)", override.kind, detected.kind);
+    field("tags", "Tags (separados por coma)", (override.tags || []).join(", "));
+
+    const linkWrap = document.createElement("div");
+    linkWrap.className = "metadata-field";
+    const linkLabel = document.createElement("label");
+    linkLabel.textContent = "Link";
+    linkLabel.htmlFor = "metadata-link";
+    const linkRow = document.createElement("div");
+    linkRow.className = "metadata-link-row";
+    const linkInput = document.createElement("input");
+    linkInput.type = "text";
+    linkInput.id = "metadata-link";
+    linkInput.name = "link";
+    linkInput.value = override.link || "";
+    linkInput.placeholder = "https://...";
+    const openBtn = document.createElement("button");
+    openBtn.type = "button";
+    openBtn.textContent = "Abrir";
+    openBtn.onclick = () => {
+        const url = linkInput.value.trim();
+        if (!url) return;
+        parent.postMessage({ pluginMessage: { type: "open-link", url } }, "*");
+    };
+    linkRow.appendChild(linkInput);
+    linkRow.appendChild(openBtn);
+    linkWrap.appendChild(linkLabel);
+    linkWrap.appendChild(linkRow);
+    form.appendChild(linkWrap);
+
+    const actions = document.createElement("div");
+    actions.className = "metadata-actions";
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "submit";
+    saveBtn.className = "primary";
+    saveBtn.textContent = "Guardar";
+    actions.appendChild(saveBtn);
+    const status = document.createElement("span");
+    status.className =
+        "metadata-status" + (metadataStatus ? " success" : "");
+    status.textContent = metadataStatus || "";
+    actions.appendChild(status);
+    form.appendChild(actions);
+
+    form.onsubmit = (event) => {
+        event.preventDefault();
+        const value = (key) => form.elements[key].value.trim();
+        const tags = value("tags")
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean);
+        parent.postMessage(
+            {
+                pluginMessage: {
+                    type: "update-node-metadata",
+                    id: containerId,
+                    metadata: {
+                        title: value("title"),
+                        description: value("description"),
+                        technology: value("technology"),
+                        kind: value("kind"),
+                        tags,
+                        link: value("link"),
+                    },
+                },
+            },
+            "*",
+        );
+    };
+
+    section.appendChild(form);
+    return section;
 }
 
 function hideContainerDetail() {
-    containerDetailEl.classList.add("hidden");
-    containerDetailEl.innerHTML = "";
+    if (containerFocusOpen) {
+        showTab(currentTab);
+    }
 }
 
-// Selects a container in the Containers tab (switching to it if needed),
-// scrolls its card into view and opens its incoming/outgoing detail panel.
-function openContainerInList(containerId, scroll) {
+// Opens a container straight into its focus view (see openContainerFocus) -
+// used when the user selects a known container shape on the canvas.
+function openContainerInList(containerId) {
     const container = findContainer(containerId);
     if (!container) return;
-    selectedContainerId = containerId;
-    // Make sure the active type chip doesn't hide the card we're opening.
+    // Make sure the active type chip doesn't hide its card once the user
+    // closes the focus view and lands back on the Containers list.
     const category = containerCategory(container);
     if (typeFilter !== "all" && typeFilter !== category) {
         typeFilter = category;
     }
-    showTab("containers");
-    renderContainers();
-    if (scroll) {
-        const card = containersEl.querySelector(
-            '.container-card[data-id="' + containerId + '"]',
-        );
-        if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
+    openContainerFocus(containerId);
 }
 
 // Same, but for a relation card in the Relations tab (used when clicking a
@@ -1251,6 +1419,14 @@ relationsEl.addEventListener("click", (event) => {
             },
             "*",
         );
+        return;
+    }
+    if (event.target.closest(".empty-import-btn")) {
+        openOverlay("import");
+        return;
+    }
+    if (event.target.closest(".empty-import-last-btn")) {
+        openImportWithLastFile();
         return;
     }
     const focusBtn = event.target.closest(".icon-btn");
@@ -1290,7 +1466,7 @@ relationDetailEl.addEventListener("click", (event) => {
     }
 });
 
-containerDetailEl.addEventListener("click", (event) => {
+containerFocusEl.addEventListener("click", (event) => {
     const btn = event.target.closest(".icon-btn, .boundary-badge");
     if (btn) {
         const id = btn.getAttribute("data-id");
@@ -1326,6 +1502,7 @@ window.onmessage = (event) => {
         debugModeToggle.checked = !!msg.debugMode;
         scanAllPagesToggle.checked = !!msg.scanAllPages;
         updateScanScopeNote();
+        applyLastImportInfo(msg.lastImportFileName, msg.lastImportText);
     }
     if (msg.type === "relations") {
         // A whole-file scan concatenates every page's containers/boundaries
@@ -1354,10 +1531,6 @@ window.onmessage = (event) => {
             selectedRelationId = msg.focusRelationId;
             showTab("relations");
         }
-        if (msg.focusContainerId) {
-            selectedContainerId = msg.focusContainerId;
-            showTab("containers");
-        }
         renderContainers();
         renderRelations();
         renderIssues();
@@ -1371,21 +1544,38 @@ window.onmessage = (event) => {
             if (card)
                 card.scrollIntoView({ behavior: "smooth", block: "center" });
         }
+        // Opened via the shape's "View this container" relaunch button -
+        // jump straight into its focus view rather than just the list.
         if (msg.focusContainerId) {
-            const card = containersEl.querySelector(
-                '.container-card[data-id="' + msg.focusContainerId + '"]',
-            );
-            if (card)
-                card.scrollIntoView({ behavior: "smooth", block: "center" });
+            // Not shown - just makes "×"/the nav links land on Containers
+            // rather than whatever tab was active before this reopen.
+            currentTab = "containers";
+            openContainerFocus(msg.focusContainerId);
         }
         if (!overlayViews.export.classList.contains("hidden")) {
             renderExportOutput();
         }
     }
     // Sent by the plugin when the user selects a known container shape on
-    // the canvas: mirror that selection in the Containers tab.
+    // the canvas: mirror that selection by opening its focus view.
     if (msg.type === "container-selected" && msg.id) {
-        openContainerInList(msg.id, true);
+        openContainerInList(msg.id);
+    }
+    // Response to a "get-node-metadata" request - render the editor once it
+    // arrives (renderContainerDetail sends the request and shows a loading
+    // state in the meantime).
+    if (msg.type === "node-metadata" && msg.id) {
+        metadataNodeId = msg.id;
+        metadataDetected = msg.detected || {};
+        metadataOverride = msg.metadata || {};
+        metadataStatus = null;
+        if (selectedContainerId === msg.id) renderContainerDetail(msg.id);
+    }
+    if (msg.type === "node-metadata-saved" && msg.id) {
+        if (metadataNodeId === msg.id) {
+            metadataStatus = "Guardado.";
+            if (selectedContainerId === msg.id) renderContainerDetail(msg.id);
+        }
     }
     if (msg.type === "parsed") {
         renderImportParsed(msg);
@@ -1393,10 +1583,15 @@ window.onmessage = (event) => {
     if (msg.type === "imported" && msg.source !== "base-template") {
         renderImportResult(msg);
     }
+    if (msg.type === "synced") {
+        renderSyncResult(msg);
+    }
     if (msg.type === "error" && msg.source === "base-template") {
         baseTemplateStatus = msg.message;
         renderContainers();
         renderRelations();
+    } else if (msg.type === "error" && msg.source === "sync-all") {
+        renderSyncError(msg);
     } else if (msg.type === "error") {
         renderImportError(msg);
     }

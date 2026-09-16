@@ -70,3 +70,57 @@ export function colorForName(name: string | undefined | null): RGB {
   const key = name.toLowerCase()
   return PALETTE[key] ?? hashToColor(key)
 }
+
+function rgbToHue(rgb: RGB): number {
+  const { r, g, b } = rgb
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const delta = max - min
+  if (delta === 0) return 0
+  let h: number
+  if (max === r) h = ((g - b) / delta) % 6
+  else if (max === g) h = (b - r) / delta + 2
+  else h = (r - g) / delta + 4
+  h *= 60
+  return h < 0 ? h + 360 : h
+}
+
+// The exact accent colors this plugin's dedicated card shapes already use
+// for their default (colorless) case - captured from the user's real FigJam
+// shapes (see the reference comments throughout import.ts). A LikeC4 color
+// name that maps onto one of these families should render pixel-identical
+// to that same default, not PALETTE's paler Tailwind swatch, so an explicit
+// `color` looks like it belongs on the card instead of washing it out.
+const CARD_PALETTE: Record<string, RGB> = {
+  blue: hex(17, 104, 189), // #1168BD - BROWSER_CHROME
+  primary: hex(17, 104, 189),
+  sky: hex(17, 104, 189),
+  cyan: hex(17, 104, 189),
+  green: hex(41, 126, 6), // #297E06 - PERSON_MAIN_GREEN
+  emerald: hex(41, 126, 6),
+  teal: hex(41, 126, 6),
+  lime: hex(41, 126, 6),
+  amber: hex(237, 134, 9), // #ED8609 - SOFTWARE_SYSTEM_ORANGE
+  orange: hex(237, 134, 9),
+  yellow: hex(237, 134, 9),
+  red: hex(191, 16, 29), // #BF101D - EXTERNAL_SYSTEM_BORDER_RED
+  rose: hex(191, 16, 29),
+  pink: hex(191, 16, 29),
+  fuchsia: hex(191, 16, 29),
+  indigo: hex(111, 66, 193), // #6F42C1 - CODE_CHROME
+  violet: hex(111, 66, 193),
+  purple: hex(111, 66, 193),
+}
+
+// Anything outside CARD_PALETTE (a custom/exotic name) keeps its resolved
+// hue but gets re-flattened onto the same darker, more saturated band as
+// the mapped colors above (roughly 25-48% lightness at 85%+ saturation),
+// instead of PALETTE's paler ~55-60%-lightness Tailwind swatches.
+export function cardAccentColor(name: string | undefined | null): RGB {
+  if (!name) return CARD_PALETTE.blue
+  const key = name.toLowerCase()
+  const mapped = CARD_PALETTE[key]
+  if (mapped) return mapped
+  const hue = rgbToHue(colorForName(key))
+  return hslToRgb(hue, 0.85, 0.4)
+}

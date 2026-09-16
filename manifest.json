@@ -8,7 +8,8 @@
   "documentAccess": "dynamic-page",
   "relaunchButtons": [
     { "command": "view-relation", "name": "View C4 relation" },
-    { "command": "view-container", "name": "View C4 container" }
+    { "command": "view-container", "name": "View C4 container" },
+    { "command": "open-link", "name": "Open link" }
   ],
   "networkAccess": {
     "allowedDomains": ["none"]

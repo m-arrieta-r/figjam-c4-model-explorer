@@ -472,7 +472,7 @@ npm run watch       # both of the above, in --watch mode, in parallel
 npm run typecheck   # tsc --noEmit (src/code.ts only; src/ui/*.js is untyped)
 ```
 
-Always run `typecheck` (and `build` if `dist/` will be loaded) after
-touching `src/code.ts`. Changes under `src/ui/` need `npm run build:ui` (or
-`npm run build`) before reloading the plugin in Figma — there is no
-build-free path anymore now that the UI is split across multiple files.
+Always run `npm run build` yourself after any change under `src/` — don't
+leave it for the user to compile. Run `typecheck` too after touching
+`src/code.ts`. There is no build-free path: `dist/` is gitignored and the
+plugin in Figma only reflects what the last build produced.

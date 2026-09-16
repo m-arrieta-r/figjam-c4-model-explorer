@@ -169,10 +169,6 @@
             <div id="containers-view" class="tab-view hidden">
                 <div id="type-filter" class="type-filter hidden"></div>
                 <div id="containers"></div>
-                <div
-                    id="container-detail"
-                    class="container-detail hidden"
-                ></div>
             </div>
 
             <div id="landscape-view" class="tab-view hidden">
@@ -181,6 +177,28 @@
 
             <div id="errors-view" class="tab-view hidden">
                 <div id="issues"></div>
+            </div>
+
+            <div id="container-focus-view" class="tab-view overlay-view hidden">
+                <div id="cf-header"></div>
+                <div class="cf-nav-links">
+                    <button type="button" class="cf-nav-link" id="cf-nav-containers">
+                        Ver todos los Containers
+                    </button>
+                    <button type="button" class="cf-nav-link" id="cf-nav-relations">
+                        Ver todas las Relaciones
+                    </button>
+                </div>
+                <div class="cf-tabs">
+                    <button type="button" class="cf-tab-btn active" data-cf-tab="metadata">
+                        Metadatos
+                    </button>
+                    <button type="button" class="cf-tab-btn" data-cf-tab="relations">
+                        Relaciones
+                    </button>
+                </div>
+                <div id="cf-panel-metadata" class="cf-tab-panel"></div>
+                <div id="cf-panel-relations" class="cf-tab-panel hidden"></div>
             </div>
 
             <div id="export-view" class="tab-view overlay-view hidden">
@@ -264,6 +282,10 @@
                     clipboard/textarea truncation on large files) or paste its
                     contents, pick a view, and import it into FigJam.
                 </p>
+                <div class="row hidden" id="last-import-row">
+                    <button type="button" id="load-last-import-btn"></button>
+                    <button type="button" id="sync-last-btn" class="primary"></button>
+                </div>
                 <div class="row">
                     <input
                         type="file"
@@ -286,6 +308,18 @@
                     </button>
                 </div>
                 <div id="import-status" class="status"></div>
+
+                <p>
+                    Or sync every view in this JSON at once — each view gets
+                    its own FigJam page (matched by title; re-syncing clears
+                    and rebuilds that page's content from this file):
+                </p>
+                <div class="row">
+                    <button id="sync-all-btn" class="primary" disabled>
+                        Sync all views to pages
+                    </button>
+                </div>
+                <div id="sync-status" class="status"></div>
             </div>
 
             <div id="settings-view" class="tab-view overlay-view hidden">

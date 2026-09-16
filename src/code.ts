@@ -33,6 +33,23 @@ const scanAllPagesLoaded: Promise<void> = figma.clientStorage
     scanAllPages = value === true;
   });
 
+// The last file successfully imported via the Import tab's file picker,
+// persisted the same way as debugMode/scanAllPages so the UI can offer to
+// re-import it on a later launch without the user having to browse for it
+// again (see the "save-last-import" and "settings" handling below).
+let lastImportFileName: string | null = null;
+let lastImportText: string | null = null;
+const lastImportLoaded: Promise<void> = figma.clientStorage
+  .getAsync("lastImportFileName")
+  .then((name) => {
+    lastImportFileName = typeof name === "string" ? name : null;
+  })
+  .then(() => figma.clientStorage.getAsync("lastImportText"))
+  .then((text) => {
+    lastImportText = typeof text === "string" ? text : null;
+    if (!lastImportFileName) lastImportText = null;
+  });
+
 type ContainerKind = "ui" | "backend" | "database" | null;
 
 interface Container {
@@ -46,6 +63,62 @@ interface Container {
   fillColor: string | null;
   containerKind: ContainerKind;
   boundaryId: string | null;
+  tags: string[];
+  link: string | null;
+}
+
+// User-authored overrides for a container, persisted on the shape itself
+// (see readNodeMetadata/writeNodeMetadata below) rather than inferred from
+// its text layers - lets the user correct a bad auto-detection or add fields
+// (tags, a link) that have no on-canvas representation at all, without
+// touching the drawing.
+interface NodeMetadata {
+  title?: string;
+  description?: string;
+  technology?: string;
+  kind?: string;
+  tags?: string[];
+  link?: string;
+}
+
+const METADATA_PLUGIN_DATA_KEY = "c4Metadata";
+
+function readNodeMetadata(node: BaseNode | null): NodeMetadata {
+  if (!node || !("getPluginData" in node)) return {};
+  const raw = (node as SceneNode).getPluginData(METADATA_PLUGIN_DATA_KEY);
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? (parsed as NodeMetadata) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeNodeMetadata(node: SceneNode, metadata: NodeMetadata): void {
+  node.setPluginData(METADATA_PLUGIN_DATA_KEY, JSON.stringify(metadata));
+}
+
+// Layers a container's persisted metadata override on top of what extraction
+// inferred from its text layers - the override wins field by field, so
+// leaving a field blank in the editor falls back to auto-detection instead
+// of erasing it.
+function applyMetadataOverride(
+  details: ContainerDetails,
+  node: BaseNode | null,
+): { details: ContainerDetails; tags: string[]; link: string | null } {
+  const metadata = readNodeMetadata(node);
+  return {
+    details: {
+      ...details,
+      name: metadata.title || details.name,
+      elementType: metadata.kind || details.elementType,
+      technology: metadata.technology || details.technology,
+      description: metadata.description || details.description,
+    },
+    tags: metadata.tags ?? [],
+    link: metadata.link || null,
+  };
 }
 
 // A "boundary" is a big box (drawn shape, or a native FigJam Section) that
@@ -745,8 +818,10 @@ async function extractRelationsForPage(page: PageNode): Promise<ExtractResult> {
     const sourceNode = await figma.getNodeByIdAsync(sourceId);
     const targetNode = await figma.getNodeByIdAsync(targetId);
 
-    const sourceDetails = extractContainerDetails(sourceNode);
-    const targetDetails = extractContainerDetails(targetNode);
+    const sourceOverride = applyMetadataOverride(extractContainerDetails(sourceNode), sourceNode);
+    const targetOverride = applyMetadataOverride(extractContainerDetails(targetNode), targetNode);
+    const sourceDetails = sourceOverride.details;
+    const targetDetails = targetOverride.details;
 
     debugLog(
       `[extract-c4] connector ${connector.id}: ` +
@@ -804,6 +879,8 @@ async function extractRelationsForPage(page: PageNode): Promise<ExtractResult> {
         fillColor: extractFillColor(sourceNode),
         containerKind: extractContainerKind(sourceNode),
         boundaryId: sourceBoundary ? sourceBoundary.id : null,
+        tags: sourceOverride.tags,
+        link: sourceOverride.link,
       });
     }
     if (!containerMap.has(targetId)) {
@@ -832,18 +909,31 @@ async function extractRelationsForPage(page: PageNode): Promise<ExtractResult> {
         fillColor: extractFillColor(targetNode),
         containerKind: extractContainerKind(targetNode),
         boundaryId: targetBoundary ? targetBoundary.id : null,
+        tags: targetOverride.tags,
+        link: targetOverride.link,
       });
     }
 
     // Same relaunch integration as connectors (see below), but for the
     // containers themselves: selecting the shape on the canvas shows a
     // "view-container" button in Figma's property panel that opens the
-    // plugin straight into that container's relations.
-    for (const endpointNode of [sourceNode, targetNode]) {
+    // plugin straight into that container's relations. A second
+    // "open-link" button only appears when the container actually has a
+    // link set (in the metadata editor) - setRelaunchData replaces the
+    // whole button set on each call, so it's rebuilt from scratch per node
+    // rather than added onto conditionally.
+    for (const [endpointNode, override] of [
+      [sourceNode, sourceOverride],
+      [targetNode, targetOverride],
+    ] as const) {
       if (endpointNode && "setRelaunchData" in endpointNode) {
-        endpointNode.setRelaunchData({
+        const relaunchData: Record<string, string> = {
           "view-container": "View this container's relations in the C4 panel",
-        });
+        };
+        if (override.link) {
+          relaunchData["open-link"] = "Open this element's link";
+        }
+        endpointNode.setRelaunchData(relaunchData);
       }
     }
 
@@ -1231,6 +1321,15 @@ figma.on("selectionchange", () => {
   }
 });
 
+// Re-run extraction when the user navigates to a different page, so the UI
+// shows that page's content instead of stale data from the previous one.
+// Skipped in all-pages scope since the result set doesn't depend on the
+// current page there.
+figma.on("currentpagechange", () => {
+  if (scanAllPages) return;
+  void runExtraction();
+});
+
 async function focusNode(id: string) {
   const node = await figma.getNodeByIdAsync(id);
 
@@ -1302,6 +1401,87 @@ async function focusNode(id: string) {
   }
 }
 
+interface SyncViewResult {
+  viewId: string;
+  title: string;
+  pageId: string;
+  created: boolean;
+  nodeCount: number;
+  edgeCount: number;
+  skippedNodes: number;
+  skippedEdges: number;
+  error: string | null;
+}
+
+// Syncs every view in a LikeC4 JSON export to its own FigJam page: one page
+// per view, matched to an existing page by exact name === view title (the
+// same string importView() already uses as the section name for a single
+// import). Re-running this against the same file is idempotent by design —
+// "wipe & rebuild": each matched page's entire content is cleared before
+// importView/importSequenceView regenerates it, rather than diffing against
+// whatever's already there. That's deliberately simple (no per-node
+// provenance tracking needed) at the cost of discarding any manual
+// repositioning done on that page between syncs — acceptable since these
+// pages are meant to mirror the LikeC4 source, not be hand-edited.
+// Matching by name also means renaming a synced page breaks the link (a new
+// page gets created next sync instead of updating the renamed one) - a
+// known tradeoff, not a bug.
+async function syncAllViews(text: string): Promise<SyncViewResult[]> {
+  await figma.loadAllPagesAsync();
+  const views = extractViews(JSON.parse(text));
+  const originalPage = figma.currentPage;
+  const results: SyncViewResult[] = [];
+
+  for (const [key, view] of Object.entries(views)) {
+    const title = view.title || key;
+    let page = figma.root.children.find(
+      (p) => p.type === "PAGE" && p.name === title,
+    ) as PageNode | undefined;
+    const created = !page;
+    if (!page) {
+      page = figma.createPage();
+      page.name = title;
+    }
+    // Wipe: drop everything currently on the page before rebuilding it from
+    // this view. importView/importSequenceView both operate on
+    // figma.currentPage, so it's switched for the duration of this import.
+    for (const child of [...page.children]) child.remove();
+    await figma.setCurrentPageAsync(page);
+    try {
+      const result =
+        view.variant === "sequence"
+          ? await importSequenceView(view)
+          : await importView(view);
+      results.push({
+        viewId: key,
+        title,
+        pageId: page.id,
+        created,
+        nodeCount: result.nodeCount,
+        edgeCount: result.edgeCount,
+        skippedNodes: result.skippedNodes,
+        skippedEdges: result.skippedEdges,
+        error: null,
+      });
+    } catch (err) {
+      results.push({
+        viewId: key,
+        title,
+        pageId: page.id,
+        created,
+        nodeCount: 0,
+        edgeCount: 0,
+        skippedNodes: 0,
+        skippedEdges: 0,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  await figma.setCurrentPageAsync(originalPage);
+  return results;
+}
+
 function findPage(node: BaseNode): PageNode | null {
   let current: BaseNode | null = node;
   while (current) {
@@ -1319,6 +1499,9 @@ figma.ui.onmessage = async (
     text?: string;
     viewId?: string;
     level?: number;
+    metadata?: NodeMetadata;
+    url?: string;
+    fileName?: string | null;
   },
 ) => {
   if (msg.type === "parse" && msg.text) {
@@ -1347,20 +1530,58 @@ figma.ui.onmessage = async (
         view.variant === "sequence"
           ? await importSequenceView(view)
           : await importView(view);
-      figma.ui.postMessage({ type: "imported", ...result });
+      if (msg.fileName) {
+        lastImportFileName = msg.fileName;
+        lastImportText = msg.text;
+        figma.clientStorage.setAsync("lastImportFileName", lastImportFileName);
+        figma.clientStorage.setAsync("lastImportText", lastImportText);
+      }
+      figma.ui.postMessage({ type: "imported", ...result, fileName: msg.fileName || null });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       figma.ui.postMessage({ type: "error", message });
     }
     return;
   }
+  if (msg.type === "sync-all" && msg.text) {
+    try {
+      const results = await syncAllViews(msg.text);
+      if (msg.fileName) {
+        lastImportFileName = msg.fileName;
+        lastImportText = msg.text;
+        figma.clientStorage.setAsync("lastImportFileName", lastImportFileName);
+        figma.clientStorage.setAsync("lastImportText", lastImportText);
+      }
+      figma.ui.postMessage({ type: "synced", results, fileName: msg.fileName || null });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      figma.ui.postMessage({ type: "error", source: "sync-all", message });
+    }
+    return;
+  }
   if (msg.type === "ui-ready") {
-    await Promise.all([debugModeLoaded, scanAllPagesLoaded]);
-    figma.ui.postMessage({ type: "settings", debugMode, scanAllPages });
+    await Promise.all([debugModeLoaded, scanAllPagesLoaded, lastImportLoaded]);
+    figma.ui.postMessage({
+      type: "settings",
+      debugMode,
+      scanAllPages,
+      lastImportFileName,
+      lastImportText,
+    });
+    if (figma.command === "open-link") {
+      const id = getSelectedContainerId();
+      const node = id ? await figma.getNodeByIdAsync(id) : null;
+      const link = readNodeMetadata(node).link;
+      if (link && /^https?:\/\//i.test(link)) {
+        figma.openExternal(link);
+      }
+    }
     const focusRelationId =
       figma.command === "view-relation" ? getSelectedConnectorId() : null;
     const focusContainerId =
-      figma.command === "view-container" ? getSelectedContainerId() : null;
+      figma.command === "view-container" || figma.command === "open-link"
+        ? getSelectedContainerId()
+        : null;
     await runExtraction(focusRelationId, focusContainerId);
   }
   if (msg.type === "extract") {
@@ -1445,6 +1666,46 @@ figma.ui.onmessage = async (
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       figma.ui.postMessage({ type: "dump-selection-result", error: message });
+    }
+  }
+  if (msg.type === "open-link" && msg.url) {
+    // Only ever a plain http(s) URL - the metadata editor's "Abrir" button
+    // (a link to another view/board, a doc, a ticket) - never anything a
+    // plugin should be executing on its own.
+    if (/^https?:\/\//i.test(msg.url)) {
+      figma.openExternal(msg.url);
+    }
+  }
+  if (msg.type === "get-node-metadata" && msg.id) {
+    const node = await figma.getNodeByIdAsync(msg.id);
+    const detected = extractContainerDetails(node);
+    figma.ui.postMessage({
+      type: "node-metadata",
+      id: msg.id,
+      detected: {
+        title: detected.name,
+        description: detected.description,
+        technology: detected.technology,
+        kind: detected.elementType,
+      },
+      metadata: readNodeMetadata(node),
+    });
+  }
+  if (msg.type === "update-node-metadata" && msg.id) {
+    const node = await figma.getNodeByIdAsync(msg.id);
+    if (node && "setPluginData" in node) {
+      const submitted = msg.metadata ?? {};
+      const metadata: NodeMetadata = {
+        title: submitted.title?.trim() || undefined,
+        description: submitted.description?.trim() || undefined,
+        technology: submitted.technology?.trim() || undefined,
+        kind: submitted.kind?.trim() || undefined,
+        tags: Array.isArray(submitted.tags) && submitted.tags.length > 0 ? submitted.tags : undefined,
+        link: submitted.link?.trim() || undefined,
+      };
+      writeNodeMetadata(node as SceneNode, metadata);
+      figma.ui.postMessage({ type: "node-metadata-saved", id: msg.id });
+      await runExtraction();
     }
   }
   if (msg.type === "close") {
