@@ -1109,6 +1109,45 @@ function stabilizeAfterAppend(shape: SceneNode): void {
   }
 }
 
+// Standard "link" blue, matching what Figma renders for a hyperlinked text
+// run — keeps the drill-down link visually recognizable as a link rather
+// than looking like a stray label.
+const LINK_TEXT_COLOR = { r: 37 / 255, g: 99 / 255, b: 235 / 255 } // #2563EB
+// Gap between the shape's own edge and the link label, placed *outside* the
+// shape (below and flush with its right edge) rather than overlapping its
+// content.
+const LINK_GAP = 2
+
+// Drops a small hyperlinked "link 🔗" text just outside a node's bottom-right
+// corner, pointing at the FigJam page that mirrors the LikeC4 view this
+// element drills down into (`node.navigateTo`) — mirrors LikeC4's own
+// click-to-navigate behavior between views. `shape` must already be
+// reparented into `container` and have its final section-relative
+// x/y/width/height (i.e. called after the caller's own positioning code),
+// since this reads those to anchor itself, and appends into the same
+// container so it moves/selects alongside the shape rather than living at
+// the section root unrelated to it. `targetPageId` is a FigJam page id —
+// hyperlink type `NODE` accepts any node id in the file, including a page,
+// and Figma resolves/zooms to it like following an internal link.
+async function appendNavigationLink(
+  shape: SceneNode,
+  container: BaseNode & ChildrenMixin,
+  targetPageId: string
+): Promise<void> {
+  const link = figma.createText()
+  link.name = 'link'
+  link.fontName = { family: 'Inter', style: 'Regular' }
+  link.fontSize = 12
+  link.textDecoration = 'UNDERLINE'
+  link.fills = [{ type: 'SOLID', color: LINK_TEXT_COLOR }]
+  link.characters = 'link 🔗'
+  link.hyperlink = { type: 'NODE', value: targetPageId }
+  container.appendChild(link)
+  stabilizeAfterAppend(link)
+  link.x = shape.x + shape.width - link.width
+  link.y = shape.y + shape.height + LINK_GAP
+}
+
 // Creates the right FigJam shape for a LikeC4 node based on its shape/kind,
 // fully styled and sized but not yet parented or positioned — the caller
 // appends it to a container and sets x/y (Figma reinterprets a node's x/y as
@@ -1171,7 +1210,10 @@ async function createShapeForNode(node: LikeC4Node): Promise<SceneNode> {
   return shape
 }
 
-export async function importView(view: LikeC4View) {
+export async function importView(
+  view: LikeC4View,
+  viewIdToPageId?: Map<string, string>
+) {
   await figma.loadFontAsync({ family: 'Inter', style: 'Regular' })
   await figma.loadFontAsync({ family: 'Inter', style: 'Bold' })
 
@@ -1239,6 +1281,8 @@ export async function importView(view: LikeC4View) {
       shape.x = node.x + offsetX + (node.width - shape.width) / 2
       shape.y = node.y + offsetY + (node.height - shape.height) / 2
       nodesById.set(node.id, shape)
+      const targetPageId = node.navigateTo && viewIdToPageId?.get(node.navigateTo)
+      if (targetPageId) await appendNavigationLink(shape, container, targetPageId)
     } catch (err) {
       skippedNodes++
       if (!firstNodeError) firstNodeError = err instanceof Error ? err.message : String(err)
@@ -1320,7 +1364,10 @@ const SEQ = {
   badgeFontSize: 11,
 }
 
-export async function importSequenceView(view: LikeC4View) {
+export async function importSequenceView(
+  view: LikeC4View,
+  viewIdToPageId?: Map<string, string>
+) {
   await figma.loadFontAsync({ family: 'Inter', style: 'Regular' })
   await figma.loadFontAsync({ family: 'Inter', style: 'Bold' })
 
@@ -1397,6 +1444,8 @@ export async function importSequenceView(view: LikeC4View) {
       // against the top-left corner.
       shape.x = actor.x + offsetX + (actor.width - shape.width) / 2
       shape.y = offsetY + (actor.height - shape.height) / 2
+      const targetPageId = actor.navigateTo && viewIdToPageId?.get(actor.navigateTo)
+      if (targetPageId) await appendNavigationLink(shape, section, targetPageId)
       const x = actor.x + actor.width / 2 + offsetX
       lifelineX.set(actor.id, x)
 

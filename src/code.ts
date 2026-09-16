@@ -1432,16 +1432,33 @@ async function syncAllViews(text: string): Promise<SyncViewResult[]> {
   const originalPage = figma.currentPage;
   const results: SyncViewResult[] = [];
 
+  // Pass 1: find-or-create every view's page up front, before generating
+  // any content, so the id map used for cross-view "link" hyperlinks
+  // (elements that drill down into another view — see appendNavigationLink
+  // in import.ts) is complete regardless of which view happens to reference
+  // which — a node's navigateTo target may be processed later in this same
+  // loop, or not at all if it was pruned from the export.
+  const pages = new Map<string, PageNode>();
+  const createdPages = new Set<string>();
+  const viewIdToPageId = new Map<string, string>();
   for (const [key, view] of Object.entries(views)) {
     const title = view.title || key;
     let page = figma.root.children.find(
       (p) => p.type === "PAGE" && p.name === title,
     ) as PageNode | undefined;
-    const created = !page;
     if (!page) {
       page = figma.createPage();
       page.name = title;
+      createdPages.add(key);
     }
+    pages.set(key, page);
+    viewIdToPageId.set(key, page.id);
+  }
+
+  for (const [key, view] of Object.entries(views)) {
+    const title = view.title || key;
+    const page = pages.get(key)!;
+    const created = createdPages.has(key);
     // Wipe: drop everything currently on the page before rebuilding it from
     // this view. importView/importSequenceView both operate on
     // figma.currentPage, so it's switched for the duration of this import.
@@ -1450,8 +1467,8 @@ async function syncAllViews(text: string): Promise<SyncViewResult[]> {
     try {
       const result =
         view.variant === "sequence"
-          ? await importSequenceView(view)
-          : await importView(view);
+          ? await importSequenceView(view, viewIdToPageId)
+          : await importView(view, viewIdToPageId);
       results.push({
         viewId: key,
         title,

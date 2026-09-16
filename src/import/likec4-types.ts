@@ -36,6 +36,13 @@ export interface LikeC4Node {
   y: number
   width: number
   height: number
+  // Present when this element has its own dedicated view (LikeC4's
+  // click-to-drill-down navigation) — the id of that view within the same
+  // export. Used to draw an in-file "link" back to that view's FigJam page
+  // once it exists (see syncAllViews/appendNavigationLink) — only
+  // meaningful when syncing every view at once, since a single ad hoc
+  // import has no other pages to link to yet.
+  navigateTo?: string
 }
 
 // Unwraps a LikeC4Text into a plain string suitable for figma text nodes.
