@@ -45,6 +45,10 @@ const likeC4SpecToggleEl = document.getElementById("likec4-spec-toggle");
 const likeC4SpecCheckboxEl = document.getElementById("likec4-spec-checkbox");
 const debugModeToggle = document.getElementById("debug-mode-toggle");
 const scanAllPagesToggle = document.getElementById("scan-all-pages-toggle");
+const sectionsFirstToggle = document.getElementById("sections-first-toggle");
+let currentSections = [];
+// family -> purpose (see buildColorPurposes): defaults + the board's legend.
+let colorPurposes = buildColorPurposes([]);
 const scanScopeNoteEl = document.getElementById("scan-scope-note");
 
 const tabButtons = document.querySelectorAll(".tab-btn");
@@ -80,7 +84,14 @@ function renderExportOutput() {
                     currentBoundaries,
                     includeLikeC4Specification,
                 )
-              : toMermaidC4(currentContainers, currentRelations, currentBoundaries);
+              : exportFormat === "bullets"
+                ? toBulletOutline(
+                      currentContainers,
+                      currentRelations,
+                      currentSections,
+                      colorPurposes,
+                  )
+                : toMermaidC4(currentContainers, currentRelations, currentBoundaries);
     copyStatus.textContent = "";
 }
 
@@ -193,7 +204,14 @@ function matchesSearch(fields) {
 }
 
 function containerMatchesSearch(c) {
-    return matchesSearch([c.name, c.description, c.technology, c.elementType]);
+    const color = colorPurposeOf(c, colorPurposes);
+    return matchesSearch([
+        c.name,
+        c.description,
+        c.technology,
+        c.elementType,
+        color && color.purpose,
+    ]);
 }
 
 function relationMatchesSearch(r) {
@@ -258,6 +276,18 @@ scanAllPagesToggle.addEventListener("change", () => {
             pluginMessage: {
                 type: "set-scan-all-pages",
                 enabled: scanAllPagesToggle.checked,
+            },
+        },
+        "*",
+    );
+});
+
+sectionsFirstToggle.addEventListener("change", () => {
+    parent.postMessage(
+        {
+            pluginMessage: {
+                type: "set-sections-first",
+                enabled: sectionsFirstToggle.checked,
             },
         },
         "*",
@@ -512,6 +542,7 @@ function renderContainers() {
             '<span class="header-badges">' +
             boundaryBadgeHtml(c) +
             typeBadgeHtml(c) +
+            colorBadgeHtml(c) +
             "</span>";
         item.appendChild(header);
 
@@ -715,6 +746,24 @@ function typeBadgeHtml(container) {
               : "") +
         ">" +
         escapeHtml(label) +
+        "</span>"
+    );
+}
+
+// Conceptual shapes have no type text - their fill color is the type. Only
+// colors with a known purpose (red = external by default, or the board's
+// legend) get a badge; other colors aren't mapped yet.
+function colorBadgeHtml(container) {
+    if (!container || container.elementType) return "";
+    const color = colorPurposeOf(container, colorPurposes);
+    if (!color || !color.purpose) return "";
+    return (
+        '<span class="color-badge" title="' +
+        escapeHtml("Color " + color.family + " = " + color.purpose) +
+        '"><span class="color-dot" style="background: ' +
+        escapeHtml(isRedFill(container.fillColor) ? container.fillColor : "#f24822") +
+        ';"></span>' +
+        escapeHtml(color.purpose) +
         "</span>"
     );
 }
@@ -1501,6 +1550,7 @@ window.onmessage = (event) => {
     if (msg.type === "settings") {
         debugModeToggle.checked = !!msg.debugMode;
         scanAllPagesToggle.checked = !!msg.scanAllPages;
+        sectionsFirstToggle.checked = !!msg.sectionsFirst;
         updateScanScopeNote();
         applyLastImportInfo(msg.lastImportFileName, msg.lastImportText);
     }
@@ -1526,6 +1576,8 @@ window.onmessage = (event) => {
         currentContainers = scoped.containers;
         currentRelations = scoped.relations;
         currentBoundaries = scoped.boundaries;
+        currentSections = msg.sections || [];
+        colorPurposes = buildColorPurposes(msg.legend);
         currentIssues = (msg.issues || []).concat(scoped.issues || []);
         if (msg.focusRelationId) {
             selectedRelationId = msg.focusRelationId;

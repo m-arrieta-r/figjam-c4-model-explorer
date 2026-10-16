@@ -240,6 +240,14 @@
                             >
                                 Software Systems
                             </button>
+                            <button
+                                class="format-btn"
+                                id="format-bullets"
+                                data-format="bullets"
+                                title="Markdown bullet list: each nested FigJam section is a bullet, with its sub-sections and containers indented underneath."
+                            >
+                                Markdown
+                            </button>
                         </div>
                         <label
                             class="likec4-spec-toggle"
@@ -371,6 +379,27 @@
                             <input
                                 type="checkbox"
                                 id="scan-all-pages-toggle"
+                            />
+                            <span class="toggle-slider"></span>
+                        </span>
+                    </label>
+                    <label class="settings-row" for="sections-first-toggle">
+                        <span class="settings-row-text">
+                            <span class="settings-row-label"
+                                >Sections-first (conceptual diagrams)</span
+                            >
+                            <span class="settings-row-hint"
+                                >Reads the FigJam section hierarchy first:
+                                every titled shape inside a section becomes a
+                                container (no connector or [Type] needed) and
+                                every section is listed, in canvas order. Off
+                                by default.</span
+                            >
+                        </span>
+                        <span class="toggle-switch">
+                            <input
+                                type="checkbox"
+                                id="sections-first-toggle"
                             />
                             <span class="toggle-slider"></span>
                         </span>

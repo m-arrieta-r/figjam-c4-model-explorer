@@ -35,6 +35,19 @@ const scanAllPagesLoaded: Promise<void> = figma.clientStorage
     scanAllPages = value === true;
   });
 
+// "Sections-first" mode for conceptual (non-C4) diagrams: instead of only
+// discovering containers through connector endpoints or a "[Type]" bracket,
+// every titled shape nested inside a FigJam section becomes a container, and
+// every section is reported (even one with nothing but sub-sections), so the
+// section hierarchy is complete. Off by default - boards that put everything
+// inside one giant section would otherwise flood the Containers tab.
+let sectionsFirst = false;
+const sectionsFirstLoaded: Promise<void> = figma.clientStorage
+  .getAsync("sectionsFirst")
+  .then((value) => {
+    sectionsFirst = value === true;
+  });
+
 // The last file successfully imported via the Import tab's file picker,
 // persisted the same way as debugMode/scanAllPages so the UI can offer to
 // re-import it on a later launch without the user having to browse for it
@@ -65,6 +78,12 @@ interface Container {
   fillColor: string | null;
   containerKind: ContainerKind;
   boundaryId: string | null;
+  // Names of the visible SECTION ancestors, outermost first - drives the
+  // Markdown export's heading hierarchy (see sectionPathFor).
+  sectionPath: string[];
+  // Inside a red section (see inRedSectionFor) - external regardless of the
+  // shape's own color.
+  inRedSection: boolean;
   tags: string[];
   link: string | null;
 }
@@ -113,7 +132,9 @@ function applyMetadataOverride(
   return {
     details: {
       ...details,
-      name: metadata.title || details.name,
+      // A FigJam title wraps across visual lines - keep it one line, or it
+      // round-trips into the exported DSL as a literal multi-line string.
+      name: (metadata.title || details.name).replace(/\s+/g, " ").trim(),
       elementType: metadata.kind || details.elementType,
       technology: metadata.technology || details.technology,
       description: metadata.description || details.description,
@@ -175,6 +196,77 @@ interface ExtractResult {
   boundaries: Boundary[];
   issues: Issue[];
   skipped: number;
+  // Section paths (names, outermost first), document order. Only filled in
+  // sections-first mode.
+  sections: string[][];
+  // Color -> purpose pairs read from a legend drawn on the canvas (a
+  // section/frame/group named "Leyenda"/"Legend"...). Only filled in
+  // sections-first mode; see collectLegend.
+  legend: LegendEntry[];
+}
+
+interface LegendEntry {
+  fillColor: string;
+  label: string;
+}
+
+// A section/frame/group with this name is the board's color key, not part
+// of the diagram: its shapes become LegendEntry pairs instead of containers.
+const LEGEND_NAME_RE = /^\s*(leyenda|legend|convenci[oó]n(es)?|simbolog[ií]a|colores|colors)\b/i;
+
+// Each colored swatch in a legend paired with its meaning: either the
+// swatch's own text (a colored shape-with-text / sticky reading "Sistema
+// externo") or, for a bare colored rectangle, the nearest TEXT node on the
+// same row (swatch + label drawn side by side).
+function collectLegend(root: BaseNode): LegendEntry[] {
+  const swatches: SceneNode[] = [];
+  const texts: TextNode[] = [];
+  const visit = (node: BaseNode) => {
+    if ("visible" in node && node.visible === false) return;
+    if (node.type === "TEXT") texts.push(node);
+    else if (
+      node.type === "SHAPE_WITH_TEXT" ||
+      node.type === "RECTANGLE" ||
+      node.type === "STICKY" ||
+      node.type === "ELLIPSE"
+    ) {
+      swatches.push(node);
+      return;
+    }
+    if ("children" in node) (node as ChildrenMixin).children.forEach(visit);
+  };
+  if ("children" in root) (root as ChildrenMixin).children.forEach(visit);
+
+  const center = (n: SceneNode) => {
+    const b = n.absoluteBoundingBox;
+    return b ? { x: b.x + b.width / 2, y: b.y + b.height / 2, h: b.height } : null;
+  };
+  const entries: LegendEntry[] = [];
+  const seen = new Set<string>();
+  for (const swatch of swatches) {
+    const fillColor = extractFillColor(swatch);
+    if (!fillColor || seen.has(fillColor)) continue;
+    const details = extractContainerDetails(swatch);
+    let label = details.name.trim();
+    if (!label || details.nameSource === "node-name-fallback") {
+      label = "";
+      const c = center(swatch);
+      let best = Infinity;
+      for (const text of texts) {
+        const t = center(text);
+        if (!c || !t || Math.abs(t.y - c.y) > Math.max(c.h, t.h)) continue;
+        const dist = Math.abs(t.x - c.x) + Math.abs(t.y - c.y);
+        if (dist < best && text.characters.trim()) {
+          best = dist;
+          label = text.characters.replace(/\s+/g, " ").trim();
+        }
+      }
+    }
+    if (!label) continue;
+    seen.add(fillColor);
+    entries.push({ fillColor, label });
+  }
+  return entries;
 }
 
 interface ContainerDetails {
@@ -200,6 +292,23 @@ const TITLE_NAME_RE = /^(t[ií]tulo|title|nombre|name)$/i;
 const TECH_NAME_RE = /^(tecnolog[ií]a|technology|tech|subt[ií]tulo|subtitle)$/i;
 const DESC_NAME_RE = /^(descripci[oó]n|description|desc)$/i;
 
+// The importer (appendNavigationLink in import/import.ts) drops a "link 🔗"
+// TEXT pointing at another page next to every element that drills down into
+// another view, and groups it with that element so they move together.
+// Neither is C4 content: the link text must not be read as a name or
+// description, and the wrapper group must not become a second container.
+function isNavLinkText(node: BaseNode): boolean {
+  if (node.type !== "TEXT" || node.name !== "link") return false;
+  const link = node.hyperlink;
+  return !!link && link !== figma.mixed && link.type === "NODE";
+}
+
+function isNavLinkWrapper(node: BaseNode): boolean {
+  if (node.type !== "GROUP") return false;
+  const children = node.children;
+  return children.length === 2 && children.some(isNavLinkText);
+}
+
 // Flattens every descendant TEXT node's own layer name + content, regardless
 // of how deeply nested or how they're grouped by parent frame. Some C4 shape
 // templates label each text layer directly (e.g. "Título", "Tecnología",
@@ -211,6 +320,7 @@ function collectNamedTexts(node: BaseNode): NamedText[] {
   function walk(n: BaseNode) {
     if (!("children" in n)) return;
     (n as ChildrenMixin).children.forEach((c) => {
+      if (isNavLinkText(c)) return;
       if (c.type === "TEXT") {
         const text = c.characters.trim();
         if (text.length > 0) result.push({ nodeName: c.name.trim(), text });
@@ -497,12 +607,35 @@ function findPaintHex(node: BaseNode, prop: "fills" | "strokes"): string | null 
   return null;
 }
 
+// Same red test as isRedFill in export-shared.js (UI build, not reachable
+// from here) - keep the two in sync.
+function isRedHex(hex: string): boolean {
+  const num = parseInt(hex.slice(1), 16);
+  const r = ((num >> 16) & 255) / 255;
+  const g = ((num >> 8) & 255) / 255;
+  const b = (num & 255) / 255;
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  if (d === 0) return false;
+  let hue = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  hue = (hue * 60 + 360) % 360;
+  const sat = d / max;
+  if (!(hue >= 335 || hue <= 20)) return false;
+  return sat > 0.25 || (sat > 0.08 && max > 0.85);
+}
+
 // The shape's dominant color: first meaningful fill anywhere in the subtree,
 // falling back to strokes (for outline-only shapes). Used by the UI to tell
 // C4 variants apart that share the same bracket annotation - e.g. external
 // software systems (red) vs internal ones (orange).
 function extractFillColor(node: BaseNode | null): string | null {
   if (!node) return null;
+  // A section's color is its own fill (or border), never its contents' -
+  // descending would hand an uncolored section whatever it contains first.
+  // A red section also makes everything inside it red: see inRedSectionFor.
+  if (node.type === "SECTION") {
+    return firstSolidHex(node.fills) ?? firstSolidHex(node.strokes);
+  }
   const byFill = findPaintHex(node, "fills");
   return byFill !== null ? byFill : findPaintHex(node, "strokes");
 }
@@ -634,7 +767,7 @@ function findBoundaryLabelText(
 
   let best: { text: string; dist: number } | null = null;
   for (const sibling of siblings) {
-    if (sibling.id === shape.id || sibling.type !== "TEXT") continue;
+    if (sibling.id === shape.id || sibling.type !== "TEXT" || isNavLinkText(sibling)) continue;
     const text = sibling as TextNode;
     const characters = text.characters.trim();
     if (!characters || !isMeaningfulText(characters)) continue;
@@ -653,6 +786,60 @@ function findBoundaryLabelText(
 
 // Finds the smallest labeled boundary candidate among a set of siblings that
 // geometrically encloses containerBox, excluding other connector endpoints.
+// True if the node is hidden, or sits inside something hidden. Two distinct
+// mechanisms, both walked up the ancestor chain because children never
+// report their parent's state:
+//  - `visible === false` on the node or any ancestor.
+//  - an ancestor SECTION with `sectionContentsHidden` - FigJam's "hide section
+//    contents" button. The section itself stays visible (its title still
+//    shows), but everything inside is hidden while its children still report
+//    `visible: true` and are still returned by findAllWithCriteria. This is
+//    the usual meaning of a "hidden section" on a FigJam board.
+function isHiddenNode(node: BaseNode | null): boolean {
+  let current: BaseNode | null = node;
+  while (current && current.type !== "PAGE" && current.type !== "DOCUMENT") {
+    if ("visible" in current && (current as SceneNode).visible === false) return true;
+    const parent: BaseNode | null = current.parent;
+    if (
+      parent &&
+      parent.type === "SECTION" &&
+      (parent as SectionNode).sectionContentsHidden
+    ) {
+      return true;
+    }
+    current = parent;
+  }
+  return false;
+}
+
+// Names of the SECTION ancestors of a node, outermost first. Sections are
+// real parent/child nesting in the layer tree (unlike boundary boxes, which
+// are geometric), so no bounding-box math is needed.
+// A red section marks itself and everything inside it as external,
+// whatever color the shapes inside are drawn in (e.g. a plain gray-bordered
+// "Core Bancario" card inside a red "Core Bancario" section).
+function inRedSectionFor(node: BaseNode | null): boolean {
+  let current: BaseNode | null = node ? node.parent : null;
+  while (current && current.type !== "PAGE" && current.type !== "DOCUMENT") {
+    if (current.type === "SECTION") {
+      const hex = extractFillColor(current);
+      if (hex && isRedHex(hex)) return true;
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
+function sectionPathFor(node: BaseNode | null): string[] {
+  const path: string[] = [];
+  let current: BaseNode | null = node ? node.parent : null;
+  while (current && current.type !== "PAGE" && current.type !== "DOCUMENT") {
+    if (current.type === "SECTION") path.unshift(current.name.trim());
+    current = current.parent;
+  }
+  return path;
+}
+
 function bestBoundaryAt(
   siblings: readonly SceneNode[],
   excludeId: string,
@@ -664,6 +851,7 @@ function bestBoundaryAt(
     if (sibling.id === excludeId) continue;
     if (!BOUNDARY_CANDIDATE_TYPES.has(sibling.type)) continue;
     if (endpointIds.has(sibling.id)) continue;
+    if (sibling.visible === false) continue;
     const box = (sibling as SceneNode).absoluteBoundingBox;
     if (!box) continue;
     if (boxArea(box) <= boxArea(containerBox)) continue;
@@ -736,9 +924,11 @@ function connectorLabelFor(connector: ConnectorNode): string {
 // calls this with figma.currentPage) so extractRelationsAllPages can run the
 // exact same resolution logic over every page in the file - see below.
 async function extractRelationsForPage(page: PageNode): Promise<ExtractResult> {
-  const connectors = page.findAllWithCriteria({
-    types: ["CONNECTOR"],
-  });
+  const connectors = page
+    .findAllWithCriteria({
+      types: ["CONNECTOR"],
+    })
+    .filter((c) => !isHiddenNode(c));
   const containerMap = new Map<string, Container>();
   const boundaryMap = new Map<string, Boundary>();
   const relations: Relation[] = [];
@@ -820,6 +1010,14 @@ async function extractRelationsForPage(page: PageNode): Promise<ExtractResult> {
     const sourceNode = await figma.getNodeByIdAsync(sourceId);
     const targetNode = await figma.getNodeByIdAsync(targetId);
 
+    // A visible connector can still end on a shape inside a hidden section.
+    if (isHiddenNode(sourceNode) || isHiddenNode(targetNode)) {
+      debugLog(
+        `[extract-c4] skipping connector ${connector.id}: endpoint is hidden`,
+      );
+      continue;
+    }
+
     const sourceOverride = applyMetadataOverride(extractContainerDetails(sourceNode), sourceNode);
     const targetOverride = applyMetadataOverride(extractContainerDetails(targetNode), targetNode);
     const sourceDetails = sourceOverride.details;
@@ -881,6 +1079,8 @@ async function extractRelationsForPage(page: PageNode): Promise<ExtractResult> {
         fillColor: extractFillColor(sourceNode),
         containerKind: extractContainerKind(sourceNode),
         boundaryId: sourceBoundary ? sourceBoundary.id : null,
+        sectionPath: sectionPathFor(sourceNode),
+        inRedSection: inRedSectionFor(sourceNode),
         tags: sourceOverride.tags,
         link: sourceOverride.link,
       });
@@ -911,6 +1111,8 @@ async function extractRelationsForPage(page: PageNode): Promise<ExtractResult> {
         fillColor: extractFillColor(targetNode),
         containerKind: extractContainerKind(targetNode),
         boundaryId: targetBoundary ? targetBoundary.id : null,
+        sectionPath: sectionPathFor(targetNode),
+        inRedSection: inRedSectionFor(targetNode),
         tags: targetOverride.tags,
         link: targetOverride.link,
       });
@@ -977,15 +1179,205 @@ async function extractRelationsForPage(page: PageNode): Promise<ExtractResult> {
     });
   }
 
+  // Shapes that look like a C4 element but aren't attached to any connector
+  // at all (deleted connector, drawn purely for reference, or just not wired
+  // up yet) are otherwise invisible to every tab - the loop above only ever
+  // discovers a container by walking a connector's endpoints. This second
+  // pass scans the rest of the page for the same shape kit's "Name [Type]"
+  // convention and adds any match as a container with no relations.
+  //
+  // Deliberately excludes bare TEXT nodes: per the boundary-detection
+  // convention documented above, a floating TEXT node next to a box is far
+  // more likely to be that box's corner label (itself carrying the same
+  // "Name [Type]" bracket format) than a standalone container card, and
+  // there's no cheap way to tell the two apart without a box to anchor to.
+  // Real container cards in this shape kit are always a SHAPE_WITH_TEXT/
+  // RECTANGLE/STICKY/FRAME/GROUP with a bracket annotation somewhere inside
+  // them, so restricting to those types plus requiring an elementType or a
+  // detected icon kind keeps this from also matching decorative shapes,
+  // empty boundary boxes (whose own text - if any - doesn't parse a bracket
+  // via the plain text-bearing strategies) or sticky notes with no C4 signal.
+  const standaloneNodes = page
+    .findAllWithCriteria({
+      types: ["SHAPE_WITH_TEXT", "RECTANGLE", "STICKY", "FRAME", "GROUP"],
+    })
+    .filter(
+      (n) =>
+        !isHiddenNode(n) &&
+        !isNavLinkWrapper(n) &&
+        !endpointIds.has(n.id) &&
+        !containerMap.has(n.id) &&
+        !boundaryMap.has(n.id),
+    );
+
+  interface StandaloneCandidate {
+    node: SceneNode;
+    details: ContainerDetails;
+    override: { details: ContainerDetails; tags: string[]; link: string | null };
+    kind: ContainerKind;
+  }
+
+  const standaloneCandidates: StandaloneCandidate[] = [];
+  for (const node of standaloneNodes) {
+    const details = extractContainerDetails(node);
+    const kind = extractContainerKind(node);
+    // No bracket annotation and no detected icon kind - most likely a plain
+    // decorative shape, sticky comment, or an unlabeled boundary box, not a
+    // C4 element. Skip it rather than risk flooding the Containers tab with
+    // noise.
+    if (!details.elementType && !kind) continue;
+    const override = applyMetadataOverride(details, node);
+    standaloneCandidates.push({ node, details: override.details, override, kind });
+  }
+
+  // Excludes every other standalone candidate (in addition to connector
+  // endpoints) from boundary-box consideration, so two unconnected
+  // components sitting near each other can't be mistaken for one being the
+  // other's boundary.
+  const standaloneExclusion = new Set(endpointIds);
+  for (const candidate of standaloneCandidates) standaloneExclusion.add(candidate.node.id);
+
+  for (const candidate of standaloneCandidates) {
+    const { node, details, override, kind } = candidate;
+
+    if (isUnlabeledFallback(details)) {
+      issues.push({
+        id: `${node.id}-empty-label-standalone`,
+        connectorId: node.id,
+        connectorLabel: details.name.slice(0, 60),
+        kind: "empty-label",
+        message: `This shape has no title text - it will export as "${details.name}" (Figma's default layer name). Add a title on the shape.`,
+      });
+    }
+
+    const boundary = findContainerBoundary(node, standaloneExclusion);
+    if (boundary && !boundaryMap.has(boundary.id)) {
+      boundaryMap.set(boundary.id, boundary);
+      if (isMalformedBoundaryLabel(boundary.rawLabel)) {
+        issues.push({
+          id: `${boundary.id}-malformed-boundary-label`,
+          connectorId: boundary.id,
+          connectorLabel: boundary.name.slice(0, 60),
+          kind: "malformed-boundary-label",
+          message:
+            "This boundary's label spans multiple lines or is unusually long - check its text on the canvas, it may be mixing in a nested container's own title/description.",
+        });
+      }
+    }
+
+    containerMap.set(node.id, {
+      id: node.id,
+      name: details.name,
+      nodeType: node.type,
+      labelSource: details.nameSource,
+      elementType: details.elementType,
+      technology: details.technology,
+      description: details.description,
+      fillColor: extractFillColor(node),
+      containerKind: kind,
+      boundaryId: boundary ? boundary.id : null,
+      sectionPath: sectionPathFor(node),
+      inRedSection: inRedSectionFor(node),
+      tags: override.tags,
+      link: override.link,
+    });
+
+    if ("setRelaunchData" in node) {
+      const relaunchData: Record<string, string> = {
+        "view-container": "View this container's relations in the C4 panel",
+      };
+      if (override.link) {
+        relaunchData["open-link"] = "Open this element's link";
+      }
+      node.setRelaunchData(relaunchData);
+    }
+  }
+
+  const sections: string[][] = [];
+  const legend: LegendEntry[] = [];
+  if (sectionsFirst) {
+    // Walk the layer tree from the page down (containers-first, rather than
+    // starting from connectors), skipping anything hidden - a section whose
+    // contents are hidden is not descended into at all.
+    const order = new Map<string, number>();
+    const LEAF_TYPES = new Set(["SHAPE_WITH_TEXT", "RECTANGLE", "STICKY"]);
+    let counter = 0;
+    const walkTree = (parent: ChildrenMixin, path: string[]) => {
+      for (const child of parent.children) {
+        if ("visible" in child && child.visible === false) continue;
+        order.set(child.id, counter++);
+        if (
+          (child.type === "SECTION" ||
+            child.type === "FRAME" ||
+            child.type === "GROUP") &&
+          LEGEND_NAME_RE.test(child.name)
+        ) {
+          legend.push(...collectLegend(child));
+          continue;
+        }
+        if (child.type === "SECTION") {
+          const childPath = [...path, child.name.trim()];
+          sections.push(childPath);
+          if (child.sectionContentsHidden) continue;
+          walkTree(child, childPath);
+          continue;
+        }
+        if (
+          path.length > 0 &&
+          LEAF_TYPES.has(child.type) &&
+          !containerMap.has(child.id) &&
+          !boundaryMap.has(child.id)
+        ) {
+          const details = extractContainerDetails(child);
+          if (!details.name.trim() || isUnlabeledFallback(details)) continue;
+          const override = applyMetadataOverride(details, child);
+          containerMap.set(child.id, {
+            id: child.id,
+            name: override.details.name,
+            nodeType: child.type,
+            labelSource: override.details.nameSource,
+            elementType: override.details.elementType,
+            technology: override.details.technology,
+            description: override.details.description,
+            fillColor: extractFillColor(child),
+            containerKind: extractContainerKind(child),
+            boundaryId: null,
+            sectionPath: path,
+            inRedSection: inRedSectionFor(child),
+            tags: override.tags,
+            link: override.link,
+          });
+          if ("setRelaunchData" in child) {
+            child.setRelaunchData({
+              "view-container": "View this container's relations in the C4 panel",
+            });
+          }
+        } else if ("children" in child) {
+          walkTree(child as ChildrenMixin, path);
+        }
+      }
+    };
+    walkTree(page, []);
+    // Document order instead of connector-discovery order.
+    const sorted = Array.from(containerMap.values()).sort(
+      (a, b) =>
+        (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+        (order.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+    containerMap.clear();
+    for (const c of sorted) containerMap.set(c.id, c);
+  }
+
   const containers: Container[] = Array.from(containerMap.values());
   const boundaries: Boundary[] = Array.from(boundaryMap.values());
   debugLog(
-    `[extract-c4] resolved ${containers.length} container(s), ` +
+    `[extract-c4] resolved ${containers.length} container(s) ` +
+      `(${standaloneCandidates.length} without any connector), ` +
       `${boundaries.length} boundary(ies), skipped ${skipped} connector(s) on page "${page.name}"`,
     containers,
     boundaries,
   );
-  return { containers, relations, boundaries, issues, skipped };
+  return { containers, relations, boundaries, issues, skipped, sections, legend };
 }
 
 function extractRelations(): Promise<ExtractResult> {
@@ -1004,12 +1396,16 @@ async function extractRelationsAllPages(): Promise<ExtractResult> {
   const relations: Relation[] = [];
   const boundaries: Boundary[] = [];
   const issues: Issue[] = [];
+  const sections: string[][] = [];
+  const legend: LegendEntry[] = [];
   let skipped = 0;
   for (const page of figma.root.children) {
     const result = await extractRelationsForPage(page);
     containers.push(...result.containers);
     relations.push(...result.relations);
     boundaries.push(...result.boundaries);
+    sections.push(...result.sections);
+    legend.push(...result.legend);
     issues.push(...result.issues);
     skipped += result.skipped;
   }
@@ -1017,7 +1413,7 @@ async function extractRelationsAllPages(): Promise<ExtractResult> {
     `[extract-c4] whole-file scan: ${figma.root.children.length} page(s), ` +
       `${containers.length} raw container(s) before cross-page merge`,
   );
-  return { containers, relations, boundaries, issues, skipped };
+  return { containers, relations, boundaries, issues, skipped, sections, legend };
 }
 
 function getSelectedConnectorId(): string | null {
@@ -1750,11 +2146,17 @@ figma.ui.onmessage = async (
     return;
   }
   if (msg.type === "ui-ready") {
-    await Promise.all([debugModeLoaded, scanAllPagesLoaded, lastImportLoaded]);
+    await Promise.all([
+      debugModeLoaded,
+      scanAllPagesLoaded,
+      sectionsFirstLoaded,
+      lastImportLoaded,
+    ]);
     figma.ui.postMessage({
       type: "settings",
       debugMode,
       scanAllPages,
+      sectionsFirst,
       lastImportFileName,
       lastImportText,
     });
@@ -1800,6 +2202,11 @@ figma.ui.onmessage = async (
   if (msg.type === "set-scan-all-pages") {
     scanAllPages = !!msg.enabled;
     figma.clientStorage.setAsync("scanAllPages", scanAllPages);
+    await runExtraction();
+  }
+  if (msg.type === "set-sections-first") {
+    sectionsFirst = !!msg.enabled;
+    figma.clientStorage.setAsync("sectionsFirst", sectionsFirst);
     await runExtraction();
   }
   if (msg.type === "dump-selection") {

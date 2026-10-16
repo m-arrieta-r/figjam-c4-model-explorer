@@ -8,13 +8,16 @@ A FigJam plugin. It scans `CONNECTOR` nodes — on the current page by default,
 or across every page in the file if the "Scan all pages" setting is on (see
 "Whole-file scan" below) — resolves the shapes at both ends of each connector
 into "containers" (extracting name / C4 element type / technology /
-description from their text layers), and shows the result in a plugin UI with
-five tabs: **Relations**, **Containers**, **Errors**, **Export** (Mermaid C4
-or LikeC4 DSL), and **Settings**. The word "container" here is the
-project-wide term for a connector endpoint shape (any C4 element — Person,
-Software System, Database... — not just the C4 "Container" type); it replaced
-the earlier term "box" everywhere (types, message payloads, DOM ids/classes,
-docs), so don't reintroduce "box" naming.
+description from their text layers). It also picks up C4-shaped elements that
+aren't attached to any connector at all (see "Standalone containers" below),
+so a component drawn but never wired up still shows up. The result is shown
+in a plugin UI with five tabs: **Relations**, **Containers**, **Errors**,
+**Export** (Mermaid C4 or LikeC4 DSL), and **Settings**. The word "container"
+here is the project-wide term for a resolved C4 element shape (any C4 element
+— Person, Software System, Database... — not just the C4 "Container" type,
+and not necessarily a connector endpoint anymore); it replaced the earlier
+term "box" everywhere (types, message payloads, DOM ids/classes, docs), so
+don't reintroduce "box" naming.
 
 ## Architecture
 
@@ -126,6 +129,37 @@ bracket match), or a wrapped label round-trips into the exported DSL as a
 literal multi-line string. `connectorLabelFor()` (used for Errors-tab issue
 text, not for the exported label itself) collapses the same way for the same
 reason.
+
+## Standalone containers (no connector attached)
+
+`extractRelationsForPage()` runs a second pass, after the connector loop,
+over every `SHAPE_WITH_TEXT` / `RECTANGLE` / `STICKY` / `FRAME` / `GROUP` on
+the page that isn't already a connector endpoint (`endpointIds`) or a
+detected boundary box (`boundaryMap`). Each survivor goes through the exact
+same `extractContainerDetails()` / `extractContainerKind()` /
+`extractFillColor()` used for connector endpoints above, and — if it looks
+like a genuine C4 element — is added to `containerMap` with no relations. It
+gets a boundary assigned (via `findContainerBoundary`, excluding every other
+standalone candidate on top of `endpointIds`, so two unconnected components
+can't be mistaken for one being the other's boundary) and a `view-container`
+relaunch button, exactly like a connector-resolved container does.
+
+"Looks like a genuine C4 element" is deliberately narrow:
+`details.elementType` (a parsed `[Type]`/`[Type: Tech]` bracket) or
+`extractContainerKind()` (the ui/backend/database icon heuristic) must be
+non-null, or the shape is skipped. Without a connector to anchor it, there's
+no other signal to tell "an actual C4 card" apart from a decorative shape, a
+comment sticky, or an empty boundary box — and bracket/icon detection is the
+one thing this shape kit encodes on the shape itself regardless of wiring.
+This intentionally **excludes bare `TEXT` nodes** from the candidate types:
+per "Boundary detection" below, a floating `TEXT` node next to a box is far
+more likely to be that box's own corner label (which carries the identical
+`"Name [Type]"` bracket format) than a standalone container card, and
+there's no box to anchor the corner-proximity check to when the box itself
+isn't in the picture yet. A standalone container with no bracket and no
+detected icon (e.g. a plain unconnected sticky note) is a known gap, not a
+bug — there's nothing on the shape to distinguish it from an unrelated
+sticky note.
 
 ## Boundary detection (System/Container Boundary boxes)
 
@@ -427,6 +461,50 @@ systems it merely references scattered across whichever file happened to
 draw a connector to them. Shares the `includeLikeC4Specification` toggle
 with the LikeC4 DSL format (only emits the `softwareS
 
+### Sections-first mode (conceptual diagrams)
+
+Everything above discovers containers from connectors (or a `[Type]`/icon
+bracket on standalone shapes), which misses plain conceptual diagrams that
+are just shapes nested in FigJam `SECTION`s. The Settings tab's
+"Sections-first" toggle (`sectionsFirst`, persisted like `scanAllPages`;
+`set-sections-first` message, re-extracts immediately) adds a third pass at
+the end of `extractRelationsForPage()` that walks the layer tree top-down
+instead: every titled `SHAPE_WITH_TEXT`/`RECTANGLE`/`STICKY` under at least
+one section becomes a `Container` (no connector or bracket needed), every
+section path is reported in `ExtractResult.sections` (`string[][]`, so empty
+sections still show), and `containers` is re-sorted into canvas/layer order.
+Hidden nodes (`visible === false`) are skipped, and a section with
+`sectionContentsHidden` is not descended into (`isHiddenNode()` applies the
+same rule to the connector/standalone passes in every mode). Each `Container`
+carries `sectionPath` (ancestor section names, outermost first) in all modes.
+The Export tab's **Markdown** format (`toBulletOutline`, `export-bullets.js`)
+renders that hierarchy as nested `-` bullets; a container drawn next to a
+section with the same name is folded into the section (its relations to
+things inside that section are dropped as redundant with the nesting).
+
+Conceptual boards use **color as type**: each color family marks a purpose.
+`colorFamily()` (`export-shared.js`) buckets a container's `fillColor` by hue
+(red/orange/yellow/green/teal/blue/purple/pink/gray), and
+`buildColorPurposes(legend)` maps family → purpose, starting from
+`DEFAULT_COLOR_PURPOSES` (red = "External system", the same canvas convention
+as `isRedFill`, which also accepts pale reds - a red FigJam section's fill is
+only a light tint) and overridden by the board's own legend: in sections-first
+mode a `SECTION`/`FRAME`/`GROUP` named like `LEGEND_NAME_RE` ("Leyenda",
+"Legend", "Convenciones", "Simbología", "Colores"...) is not walked for
+containers; `collectLegend()` (`code.ts`) instead turns each colored swatch
+into a `{ fillColor, label }` pair (the swatch's own text, or the nearest
+`TEXT` on the same row), sent as `ExtractResult.legend`. Untyped containers
+(no `elementType`) show the purpose as a `.color-badge` on their card, it's
+searchable, and the Markdown export uses it in place of the type. Colors
+with no known purpose show nothing - only red is mapped by default for now,
+deliberately (the user asked not to map the other colors yet). `containerCategory()` also
+treats an untyped red shape as `external-system`. A red `SECTION` (its own fill/border - `extractFillColor` never
+descends into a section) makes itself **and everything inside it** external,
+whatever the inner shapes' own colors: `inRedSectionFor()` (`code.ts`) sets
+`Container.inRedSection`, which `containerCategory()` checks first.
+`isRedHex` in `code.ts` duplicates `isRedFill`'s thresholds for this - keep
+them in sync.
+
 ## LikeC4 import: "Sync all" keeps manual layout
 
 "Sync all" (`syncAllViews` in `code.ts`) maps each LikeC4 view to a page
@@ -519,7 +597,7 @@ navigates from an element to its context view, so every "X - Containers"
 view) falls back to another view with the same `viewOf` that has a place in
 the hierarchy, or, without `viewOf`, to "X - System Context" by title. Both are TEXT nodes named
 `link` with a `NODE` hyperlink, so the extractor ignores them
-(`isNavLinkText`).
+(`isNavLinkText`, also skipped when looking for a boundary's corner label).
 Back links are tagged `likec4BackLink` and are re-placed in that corner on
 every sync, deliberately ignoring where they were moved - the user wants them
 in the same spot on every page. A single-view "Import" has no other pages, so it gets neither.

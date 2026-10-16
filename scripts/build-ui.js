@@ -13,6 +13,7 @@ const outFile = path.join(outDir, "ui.html");
 const JS_FILES = [
   "export-shared.js",
   "export-mermaid.js",
+  "export-bullets.js",
   "export-likec4.js",
   "import.js",
   "app.js",

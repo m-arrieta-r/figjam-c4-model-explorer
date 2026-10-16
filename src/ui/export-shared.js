@@ -2,9 +2,15 @@ function esc(str) {
     return String(str || "").replace(/"/g, '\\"');
 }
 
+// Ids are ASCII-only, so accented Latin letters are transliterated first
+// ("Gestión" -> "gestion", "Señales" -> "senales") instead of being turned
+// into "_" like any other non-alphanumeric character.
 function slugify(name, used) {
-    let base = name
-        .toLowerCase()
+    let base = normalizeSearch(name)
+        .replace(/ß/g, "ss")
+        .replace(/æ/g, "ae")
+        .replace(/œ/g, "oe")
+        .replace(/ø/g, "o")
         .replace(/[^a-z0-9]+/g, "_")
         .replace(/^_+|_+$/g, "");
     if (!base) base = "node";
@@ -97,14 +103,18 @@ function hexHueSat(hex) {
         else hue = (r - g) / d + 4;
         hue = (hue * 60 + 360) % 360;
     }
-    return { hue: hue, sat: sat };
+    return { hue: hue, sat: sat, val: max };
 }
 
 // Red shapes mark external software systems on the canvas (internal ones are
-// orange); hue splits them at ~20° so oranges don't classify as red.
+// orange); hue splits them at ~20° so oranges don't classify as red. A
+// FigJam section colored red only carries a pale tint as its fill (e.g. a
+// "Marcas" section grouping Visa/Mastercard), so light colors count as red
+// at a much lower saturation.
 function isRedFill(fillColor) {
     const hs = hexHueSat(fillColor);
-    return !!hs && hs.sat > 0.25 && (hs.hue >= 335 || hs.hue <= 20);
+    if (!hs || !(hs.hue >= 335 || hs.hue <= 20)) return false;
+    return hs.sat > 0.25 || (hs.sat > 0.08 && hs.val > 0.85);
 }
 
 // Indigo/purple shapes mark AI agents on the canvas (plain human actors are
@@ -115,6 +125,49 @@ function isIndigoFill(fillColor) {
     return !!hs && hs.sat > 0.25 && hs.hue >= 220 && hs.hue <= 280;
 }
 
+// Conceptual (sections-first) boards use color as meaning - each color
+// family marks a purpose. Hue buckets are coarse on purpose: two people
+// picking "red" from FigJam's palette rarely land on the same hex.
+function colorFamily(fillColor) {
+    const hs = hexHueSat(fillColor);
+    if (!hs) return null;
+    if (isRedFill(fillColor)) return "red";
+    if (hs.sat < 0.15) return "gray";
+    if (hs.sat <= 0.25) return "gray";
+    const h = hs.hue;
+    if (h < 45) return "orange";
+    if (h < 70) return "yellow";
+    if (h < 165) return "green";
+    if (h < 195) return "teal";
+    if (h < 245) return "blue";
+    if (h < 290) return "purple";
+    return "pink";
+}
+
+// Purposes known without a legend on the board. Red = external system is
+// the canvas convention shared with the C4 shape kit (see isRedFill).
+const DEFAULT_COLOR_PURPOSES = { red: "External system" };
+
+// family -> purpose, from the defaults overlaid with the board's own legend
+// (LegendEntry[] from collectLegend in code.ts) - the legend always wins.
+function buildColorPurposes(legend) {
+    const purposes = Object.assign({}, DEFAULT_COLOR_PURPOSES);
+    (legend || []).forEach((entry) => {
+        const family = colorFamily(entry.fillColor);
+        if (family && entry.label) purposes[family] = entry.label;
+    });
+    return purposes;
+}
+
+// { family, purpose } for a container's fill, or null when it has no color
+// worth reporting (no fill, or plain gray/white). `purpose` is null for a
+// color the legend doesn't explain.
+function colorPurposeOf(c, purposes) {
+    const family = c && c.inRedSection ? "red" : colorFamily(c && c.fillColor);
+    if (!family || family === "gray") return null;
+    return { family: family, purpose: (purposes || DEFAULT_COLOR_PURPOSES)[family] || null };
+}
+
 // Groups a container by C4 element kind, shared by the Containers tab's type
 // filter and both exporters so they never disagree on what a container is.
 // "ui"/"backend"/"database" come from the shape's detected icon
@@ -122,6 +175,9 @@ function isIndigoFill(fillColor) {
 // non-Person/System container the same generic "Container" elementType text
 // - that text alone can't tell a frontend, a service and a database apart.
 function containerCategory(c) {
+    // Everything inside a red section is external, whatever its own color
+    // or type text (see inRedSectionFor in code.ts).
+    if (c.inRedSection) return "external-system";
     const type = normalizeSearch(c.elementType || "");
     const isPersonShape = /person|persona|actor|user|usuario/.test(type);
     const isAgentText = /\bagente?\b/.test(type);
@@ -132,6 +188,9 @@ function containerCategory(c) {
         const external = /extern|\bext\b/.test(type) || isRedFill(c.fillColor);
         return external ? "external-system" : "software-system";
     }
+    // Conceptual shapes carry no type text at all - red alone marks them as
+    // external systems (same canvas convention as above).
+    if (!type && isRedFill(c.fillColor)) return "external-system";
     // Everything below (Container/Component/no element type) may carry an
     // icon-based kind detected from the shape's own children - see
     // extractContainerKind in code.ts. Prefer that over keyword guessing.

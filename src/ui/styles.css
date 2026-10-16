@@ -372,6 +372,24 @@ button.primary:hover {
     border-radius: 10px;
     white-space: nowrap;
 }
+.color-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.color-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+}
 .fallback-warning {
     color: var(--danger);
     cursor: help;
