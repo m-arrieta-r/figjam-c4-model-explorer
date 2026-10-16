@@ -68,6 +68,10 @@ export interface LikeC4Edge {
 export interface LikeC4View {
   id: string
   title?: string | null
+  // Element views (`view x of <element>`): the fqn of the scoped element.
+  // Used to tell a view's real parent apart from sibling views that also
+  // drill into it (see findParentViews in code.ts).
+  viewOf?: string | null
   description?: string | null
   bounds: LikeC4BBox
   nodes: LikeC4Node[]

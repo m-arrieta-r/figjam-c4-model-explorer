@@ -1009,17 +1009,6 @@ function kindLabel(kind: string | undefined): string {
 // (importView/importSequenceView) appends and offsets every element in the
 // returned array together, so visually this is identical to before.
 export async function createLevelBoundaryNode(node: LikeC4Node): Promise<GroupNode> {
-  const width = Math.max(node.width, 60)
-  const height = Math.max(node.height, 60)
-
-  const outline = figma.createRectangle()
-  outline.name = node.title
-  outline.resize(width, height)
-  outline.cornerRadius = LEVEL_BOUNDARY.cornerRadius
-  outline.fills = [{ type: 'SOLID', color: WHITE, opacity: 0 }]
-  outline.strokes = [{ type: 'SOLID', color: BROWSER_CHROME }]
-  outline.strokeWeight = LEVEL_BOUNDARY.strokeWeight
-
   let titleFontName: FontName
   try {
     await figma.loadFontAsync({ family: 'Open Sans', style: 'Bold' })
@@ -1041,8 +1030,6 @@ export async function createLevelBoundaryNode(node: LikeC4Node): Promise<GroupNo
     subtitleText.fills = [
       { type: 'SOLID', color: BROWSER_CHROME, opacity: LEVEL_BOUNDARY.subtitleOpacity },
     ]
-    subtitleText.x = LEVEL_BOUNDARY.padding
-    subtitleText.y = height - subtitleText.height - LEVEL_BOUNDARY.padding
   }
 
   const labelText = figma.createText()
@@ -1053,6 +1040,25 @@ export async function createLevelBoundaryNode(node: LikeC4Node): Promise<GroupNo
   labelText.textAlignHorizontal = 'LEFT'
   labelText.textAutoResize = 'WIDTH_AND_HEIGHT'
   labelText.fills = [{ type: 'SOLID', color: BROWSER_CHROME }]
+
+  // Sized like LikeC4's compound node here; importView then grows it so the
+  // bottom-left label gets its own band below the children (see
+  // fitBoundariesToChildren) - LikeC4 reserves its title band at the top.
+  const width = Math.max(node.width, 60)
+  const height = Math.max(node.height, 60)
+
+  const outline = figma.createRectangle()
+  outline.name = node.title
+  outline.resize(width, height)
+  outline.cornerRadius = LEVEL_BOUNDARY.cornerRadius
+  outline.fills = [{ type: 'SOLID', color: WHITE, opacity: 0 }]
+  outline.strokes = [{ type: 'SOLID', color: BROWSER_CHROME }]
+  outline.strokeWeight = LEVEL_BOUNDARY.strokeWeight
+
+  if (subtitleText) {
+    subtitleText.x = LEVEL_BOUNDARY.padding
+    subtitleText.y = height - subtitleText.height - LEVEL_BOUNDARY.padding
+  }
   labelText.x = LEVEL_BOUNDARY.padding
   labelText.y = subtitleText
     ? subtitleText.y - LEVEL_BOUNDARY.subtitleGap - labelText.height
@@ -1062,8 +1068,14 @@ export async function createLevelBoundaryNode(node: LikeC4Node): Promise<GroupNo
   for (const part of parts) figma.currentPage.appendChild(part)
   const group = figma.group(parts, figma.currentPage)
   group.name = node.title
+  // What this outline was generated at, so a re-sync can tell "the user
+  // resized this boundary" (keep their size) from "untouched" (take the
+  // freshly generated size) - see saveLayout.
+  group.setPluginData(BOUNDARY_GENERATED_SIZE_KEY, JSON.stringify({ width, height }))
   return group
 }
+
+const BOUNDARY_GENERATED_SIZE_KEY = 'likec4BoundarySize'
 
 // Calling unlockAspectRatio() on a node before it's been reparented into the
 // document (still "detached" right after figma.createFrame()/createEllipse()
@@ -1126,7 +1138,8 @@ const LINK_GAP = 2
 // x/y/width/height (i.e. called after the caller's own positioning code),
 // since this reads those to anchor itself, and appends into the same
 // container so it moves/selects alongside the shape rather than living at
-// the section root unrelated to it. `targetPageId` is a FigJam page id —
+// the section root unrelated to it - and is grouped with the shape (see
+// the end of this function). `targetPageId` is a FigJam page id —
 // hyperlink type `NODE` accepts any node id in the file, including a page,
 // and Figma resolves/zooms to it like following an internal link.
 async function appendNavigationLink(
@@ -1146,6 +1159,67 @@ async function appendNavigationLink(
   stabilizeAfterAppend(link)
   link.x = shape.x + shape.width - link.width
   link.y = shape.y + shape.height + LINK_GAP
+  // Group the link with its shape so moving/copying the element on the
+  // canvas carries the link along instead of leaving it behind. A shape
+  // that's already a GROUP (a level boundary, see createLevelBoundaryNode)
+  // just takes the link as one more child rather than being wrapped again.
+  // Connectors and relaunch data stay on the shape itself, and the
+  // extractor skips the wrapper / ignores the link text (isNavLinkWrapper /
+  // isNavLinkText in code.ts), so this doesn't change what gets extracted.
+  if (shape.type === 'GROUP') {
+    shape.appendChild(link)
+  } else {
+    const group = figma.group([shape, link], container)
+    group.name = shape.name
+  }
+}
+
+// A view that some other view drills into (one of its nodes has
+// `navigateTo` pointing here). The reverse of appendNavigationLink: lets
+// the reader go back up a level, like LikeC4's own breadcrumb.
+export interface ParentViewLink {
+  viewId: string
+  title: string
+  pageId: string
+}
+
+const BACK_LINK_KEY = 'likec4BackLink'
+const BACK_LINK_INSET = 12
+const BACK_LINK_GAP = 16
+
+// Puts one "← <parent view>" hyperlink per parent view in the section's
+// top-left corner (in the 40px padding importView/importSequenceView leave
+// above the content). Named 'link' like the drill-down links so the
+// extractor ignores them the same way (isNavLinkText in code.ts). `saved`
+// holds where the user moved each one on a previous sync (keyed by parent
+// view id, see captureExistingDiagram).
+async function appendBackLinks(
+  section: SectionNode,
+  parents: ParentViewLink[] | undefined,
+  saved?: Map<string, { x: number; y: number }>
+): Promise<void> {
+  let x = BACK_LINK_INSET
+  for (const parent of parents ?? []) {
+    const link = figma.createText()
+    link.name = 'link'
+    link.fontName = { family: 'Inter', style: 'Regular' }
+    link.fontSize = 12
+    link.textDecoration = 'UNDERLINE'
+    link.fills = [{ type: 'SOLID', color: LINK_TEXT_COLOR }]
+    link.characters = `↑ ${parent.title}`
+    link.hyperlink = { type: 'NODE', value: parent.pageId }
+    link.setPluginData(BACK_LINK_KEY, parent.viewId)
+    section.appendChild(link)
+    stabilizeAfterAppend(link)
+    const pos = saved?.get(parent.viewId)
+    if (pos) {
+      moveToRelative(link, section, pos.x, pos.y)
+    } else {
+      link.x = x
+      link.y = BACK_LINK_INSET
+    }
+    x += link.width + BACK_LINK_GAP
+  }
 }
 
 // Creates the right FigJam shape for a LikeC4 node based on its shape/kind,
@@ -1210,9 +1284,474 @@ async function createShapeForNode(node: LikeC4Node): Promise<SceneNode> {
   return shape
 }
 
+// --- Layout preservation across re-syncs -----------------------------------
+// "Sync all" used to wipe each view's page and rebuild it from scratch, which
+// threw away any manual layout work done on the canvas (moved cards, resized
+// boundaries, connectors re-attached to other sides or switched to elbowed)
+// every time the LikeC4 source changed even slightly. Instead, before a page
+// is rebuilt, captureExistingDiagram() reads the diagram already there and
+// importView() reuses it:
+// - the Section itself is kept (its position/size on the page),
+// - every shape whose LikeC4 element is still in the view is re-created (so
+//   title/description/technology changes still land) but put back exactly
+//   where it was, and boundaries keep their resized outline,
+// - every connector whose LikeC4 edge is still in the view is kept as the
+//   same node (so whatever routing the plugin API can't read - manual elbow
+//   bends, label position - survives too) and only re-pointed at the new
+//   shapes with its original magnet; label/style are re-applied only for
+//   fields that changed in the LikeC4 source since the last sync.
+// Elements/edges that are new in the source get the regular LikeC4 layout;
+// ones that were removed from the source are deleted.
+// Identity is tracked with plugin data stamped on each shape/connector/
+// section. Diagrams synced before this existed carry no stamps, so those fall
+// back to matching shapes by name (only when the title is unique on both
+// sides) and connectors by the pair of shapes they connect.
+const VIEW_ID_KEY = 'likec4ViewId'
+const NODE_ID_KEY = 'likec4NodeId'
+const EDGE_ID_KEY = 'likec4EdgeId'
+const EDGE_SIG_KEY = 'likec4EdgeSig'
+
+interface SavedLabelOffset {
+  name: string
+  dx: number
+  dy: number
+}
+
+interface SavedShapeLayout {
+  // Section-relative top-left of the shape (for a boundary: of its outline).
+  x: number
+  y: number
+  width: number
+  type: NodeType
+  boundary?: { width: number; height: number; labels: SavedLabelOffset[] }
+}
+
+export interface ExistingDiagram {
+  section: SectionNode
+  layouts: Map<string, SavedShapeLayout>
+  connectors: Map<string, ConnectorNode>
+  // Where each "back to parent view" link was (see appendBackLinks).
+  backLinks: Map<string, { x: number; y: number }>
+  // Everything that was in the section when it was captured. Whatever wasn't
+  // reused (old shapes, link labels, connectors of removed edges) is deleted
+  // once the new diagram is in place.
+  previousChildren: SceneNode[]
+}
+
+interface EdgeSignature {
+  label: string
+  color: string
+  line: string
+  head: string
+  tail: string
+}
+
+function edgeSignature(edge: LikeC4Edge): EdgeSignature {
+  return {
+    label: edge.label || '',
+    color: edge.color || '',
+    line: (edge.line || 'dashed').toLowerCase(),
+    head: edge.head || '',
+    tail: edge.tail || '',
+  }
+}
+
+function relativePosition(node: SceneNode, section: SectionNode): { x: number; y: number } {
+  return {
+    x: node.absoluteTransform[0][2] - section.absoluteTransform[0][2],
+    y: node.absoluteTransform[1][2] - section.absoluteTransform[1][2],
+  }
+}
+
+// Moves a node so its section-relative top-left lands on (x, y). Goes
+// through absoluteTransform instead of assigning x/y directly so it works the
+// same for direct section children and for children of a GROUP.
+function moveToRelative(node: SceneNode, section: SectionNode, x: number, y: number): void {
+  const current = relativePosition(node, section)
+  node.x += x - current.x
+  node.y += y - current.y
+}
+
+function isLinkLabel(node: SceneNode): boolean {
+  return node.type === 'TEXT' && node.name === 'link'
+}
+
+function isLevelBoundaryGroup(node: SceneNode): node is GroupNode {
+  return (
+    node.type === 'GROUP' &&
+    node.children.some((c) => c.type === 'RECTANGLE') &&
+    node.children.some((c) => c.type === 'TEXT' && c.name === 'Título')
+  )
+}
+
+function boundaryOutline(group: GroupNode): RectangleNode | null {
+  return (group.children.find((c) => c.type === 'RECTANGLE') as RectangleNode | undefined) ?? null
+}
+
+// The shapes importView created, as they sit in the section now: a direct
+// section child, or the shape inside a "shape + link" wrapper group (see
+// appendNavigationLink). Also returns every node id a connector may be
+// attached to for each shape (the shape, its wrapper, a boundary's outline).
+function collectShapes(section: SectionNode): Array<{ shape: SceneNode; ids: string[] }> {
+  const out: Array<{ shape: SceneNode; ids: string[] }> = []
+  for (const child of section.children) {
+    if (child.type === 'CONNECTOR' || isLinkLabel(child)) continue
+    if (child.type === 'GROUP' && !isLevelBoundaryGroup(child)) {
+      const wrapper = child as GroupNode
+      for (const inner of wrapper.children) {
+        if (!isLinkLabel(inner)) out.push({ shape: inner, ids: [inner.id, wrapper.id] })
+      }
+      continue
+    }
+    const ids = [child.id]
+    if (isLevelBoundaryGroup(child)) {
+      const outline = boundaryOutline(child)
+      if (outline) ids.push(outline.id)
+    }
+    out.push({ shape: child, ids })
+  }
+  return out
+}
+
+// Whether a boundary's outline is still exactly the size the importer
+// generated it at - i.e. the user never resized it, so a re-sync should use
+// the newly generated size (which may differ, e.g. after a content change)
+// rather than freeze the old one.
+function isUntouchedBoundary(group: GroupNode, outline: RectangleNode, node?: LikeC4Node): boolean {
+  let generated: { width: number; height: number } | null = null
+  const raw = group.getPluginData(BOUNDARY_GENERATED_SIZE_KEY)
+  if (raw) {
+    try {
+      generated = JSON.parse(raw)
+    } catch {
+      generated = null
+    }
+  }
+  // No stamp (imported before it existed): we can't tell, so keep the
+  // user's size - fitBoundariesToChildren still grows it if content no
+  // longer fits.
+  void node
+  return (
+    !!generated &&
+    Math.abs(outline.width - generated.width) < 1 &&
+    Math.abs(outline.height - generated.height) < 1
+  )
+}
+
+function saveLayout(shape: SceneNode, section: SectionNode, node?: LikeC4Node): SavedShapeLayout {
+  if (isLevelBoundaryGroup(shape)) {
+    const outline = boundaryOutline(shape)
+    if (outline) {
+      const origin = relativePosition(outline, section)
+      if (isUntouchedBoundary(shape, outline, node)) {
+        return { ...origin, width: shape.width, type: shape.type }
+      }
+      const labels = shape.children
+        .filter((c) => c.type === 'TEXT' && !isLinkLabel(c))
+        .map((c) => {
+          const pos = relativePosition(c, section)
+          return { name: c.name, dx: pos.x - origin.x, dy: pos.y - origin.y }
+        })
+      return {
+        ...origin,
+        width: shape.width,
+        type: shape.type,
+        boundary: { width: outline.width, height: outline.height, labels },
+      }
+    }
+  }
+  return { ...relativePosition(shape, section), width: shape.width, type: shape.type }
+}
+
+// Reads the diagram a previous sync left on `page` for `view`, or returns
+// null when there's nothing to reuse (new page, or no section on it).
+export function captureExistingDiagram(page: PageNode, view: LikeC4View): ExistingDiagram | null {
+  const sections = page.children.filter((c): c is SectionNode => c.type === 'SECTION')
+  const title = view.title || view.id
+  const section =
+    sections.find((s) => s.getPluginData(VIEW_ID_KEY) === view.id) ??
+    sections.find((s) => s.name === title) ??
+    (sections.length === 1 ? sections[0] : undefined)
+  if (!section) return null
+
+  const shapes = collectShapes(section)
+  const nodesByLikeC4Id = new Map(view.nodes.map((n) => [n.id, n]))
+  const nodeIdByFigmaId = new Map<string, string>()
+  const layouts = new Map<string, SavedShapeLayout>()
+  const assign = (likec4Id: string, entry: { shape: SceneNode; ids: string[] }) => {
+    if (layouts.has(likec4Id)) return
+    layouts.set(likec4Id, saveLayout(entry.shape, section, nodesByLikeC4Id.get(likec4Id)))
+    for (const id of entry.ids) nodeIdByFigmaId.set(id, likec4Id)
+  }
+
+  const viewNodeIds = new Set(view.nodes.map((n) => n.id))
+  const untagged: Array<{ shape: SceneNode; ids: string[] }> = []
+  for (const entry of shapes) {
+    const tag = entry.shape.getPluginData(NODE_ID_KEY)
+    if (tag && viewNodeIds.has(tag)) assign(tag, entry)
+    else if (!tag) untagged.push(entry)
+  }
+
+  // Legacy fallback: match by name, only when unambiguous on both sides.
+  const countBy = <T>(items: T[], key: (item: T) => string) => {
+    const counts = new Map<string, number>()
+    for (const item of items) counts.set(key(item), (counts.get(key(item)) ?? 0) + 1)
+    return counts
+  }
+  const titleCounts = countBy(view.nodes, (n) => n.title)
+  const nameCounts = countBy(untagged, (e) => e.shape.name)
+  for (const entry of untagged) {
+    if (nameCounts.get(entry.shape.name) !== 1) continue
+    const node = view.nodes.find((n) => n.title === entry.shape.name)
+    if (node && titleCounts.get(node.title) === 1) assign(node.id, entry)
+  }
+
+  const endpointNodeId = (endpoint: ConnectorEndpoint) =>
+    'endpointNodeId' in endpoint ? nodeIdByFigmaId.get(endpoint.endpointNodeId) : undefined
+
+  const connectors = new Map<string, ConnectorNode>()
+  const edgeIds = new Set(view.edges.map((e) => e.id))
+  const untaggedConnectors: ConnectorNode[] = []
+  for (const child of section.children) {
+    if (child.type !== 'CONNECTOR') continue
+    const tag = child.getPluginData(EDGE_ID_KEY)
+    if (tag && edgeIds.has(tag) && !connectors.has(tag)) connectors.set(tag, child)
+    else if (!tag) untaggedConnectors.push(child)
+  }
+  // Legacy fallback: match by the (source, target) pair, preferring the
+  // connector whose label still matches when the same pair has several.
+  for (const connector of untaggedConnectors) {
+    const source = endpointNodeId(connector.connectorStart)
+    const target = endpointNodeId(connector.connectorEnd)
+    if (!source || !target) continue
+    const candidates = view.edges.filter(
+      (e) => e.source === source && e.target === target && !connectors.has(e.id)
+    )
+    const text = connector.text.characters.replace(/\s+/g, ' ').trim()
+    const edge =
+      candidates.find((e) => (e.label || '').replace(/\s+/g, ' ').trim() === text) ?? candidates[0]
+    if (edge) connectors.set(edge.id, connector)
+  }
+
+  const backLinks = new Map<string, { x: number; y: number }>()
+  for (const child of section.children) {
+    const parentViewId = child.type === 'TEXT' ? child.getPluginData(BACK_LINK_KEY) : ''
+    if (parentViewId) backLinks.set(parentViewId, relativePosition(child, section))
+  }
+  // An earlier build put a whole row of back links (one per view drilling
+  // in); their slots in that row aren't a position anyone chose, so only a
+  // lone back link's position counts as user-placed.
+  if (backLinks.size > 1) backLinks.clear()
+
+  return { section, layouts, connectors, backLinks, previousChildren: [...section.children] }
+}
+
+function applySavedLayout(shape: SceneNode, saved: SavedShapeLayout, section: SectionNode): void {
+  if (saved.boundary && isLevelBoundaryGroup(shape)) {
+    const outline = boundaryOutline(shape)
+    if (outline) {
+      outline.resize(Math.max(saved.boundary.width, 1), Math.max(saved.boundary.height, 1))
+      moveToRelative(outline, section, saved.x, saved.y)
+      for (const label of saved.boundary.labels) {
+        const text = shape.children.find((c) => c.type === 'TEXT' && c.name === label.name)
+        if (text) moveToRelative(text, section, saved.x + label.dx, saved.y + label.dy)
+      }
+      return
+    }
+  }
+  // A card resized on the canvas: FigJam scales a FRAME on both axes (see
+  // createLevelBoundaryNode), so reproduce that with the same uniform scale.
+  if (
+    shape.type === 'FRAME' &&
+    saved.type === 'FRAME' &&
+    shape.width > 0 &&
+    Math.abs(saved.width / shape.width - 1) > 0.01
+  ) {
+    try {
+      shape.rescale(saved.width / shape.width)
+    } catch (err) {
+      console.warn('[extract-c4] could not rescale', shape.name, err)
+    }
+  }
+  moveToRelative(shape, section, saved.x, saved.y)
+}
+
+// Re-points a kept connector's end at the freshly created shape, keeping the
+// side/magnet (or exact attach point) the user chose.
+function repointEndpoint(previous: ConnectorEndpoint, nodeId: string): ConnectorEndpoint {
+  if ('endpointNodeId' in previous && 'magnet' in previous) {
+    return { endpointNodeId: nodeId, magnet: previous.magnet }
+  }
+  if ('endpointNodeId' in previous && 'position' in previous) {
+    return { endpointNodeId: nodeId, position: previous.position }
+  }
+  return { endpointNodeId: nodeId, magnet: 'CENTER' }
+}
+
+// Applies an edge's LikeC4 styling to a connector. `previous` is what the
+// connector was last synced from: only fields that differ from it are
+// written, so a reused connector keeps any manual styling for everything the
+// LikeC4 source didn't change. `null` (a brand-new connector) writes all.
+async function applyEdgeStyle(
+  connector: ConnectorNode,
+  edge: LikeC4Edge,
+  previous: EdgeSignature | null
+): Promise<void> {
+  const next = edgeSignature(edge)
+  const changed = (field: keyof EdgeSignature) => !previous || previous[field] !== next[field]
+
+  if (!previous) {
+    connector.connectorLineType = 'STRAIGHT'
+    connector.strokeWeight = 4
+  }
+  if (changed('color')) {
+    const rgb = edge.color ? colorForName(edge.color) : EDGE_DEFAULT_GRAY
+    connector.strokes = [{ type: 'SOLID', color: rgb }]
+  }
+  if (changed('line')) {
+    connector.dashPattern = next.line !== 'solid' ? [16, 10] : []
+  }
+  if (changed('head')) {
+    connector.connectorEndStrokeCap = edge.head === 'none' ? 'NONE' : 'ARROW_EQUILATERAL'
+  }
+  if (changed('tail')) {
+    connector.connectorStartStrokeCap =
+      edge.tail && edge.tail !== 'none' ? 'ARROW_EQUILATERAL' : 'NONE'
+  }
+  if (changed('label') && (previous || next.label)) {
+    if (previous) {
+      const fontName = connector.text.fontName
+      if (fontName !== figma.mixed) await figma.loadFontAsync(fontName)
+    }
+    connector.text.characters = next.label
+    if (!previous) connector.text.fontSize = 11
+  }
+  connector.setPluginData(EDGE_SIG_KEY, JSON.stringify(next))
+}
+
+function storedEdgeSignature(connector: ConnectorNode, edge: LikeC4Edge): EdgeSignature {
+  const raw = connector.getPluginData(EDGE_SIG_KEY)
+  if (raw) {
+    try {
+      return JSON.parse(raw) as EdgeSignature
+    } catch {
+      // fall through
+    }
+  }
+  // Synced before signatures existed: assume the style is what the user
+  // wants kept, and only compare the label against what's on the canvas.
+  return { ...edgeSignature(edge), label: connector.text.characters }
+}
+
+// Grows (never shrinks) every level boundary so it encloses its LikeC4
+// children with padding on all sides plus, at the bottom, a band for its
+// own bottom-left title/subtitle - LikeC4 lays compound nodes out with the
+// title band at the top, so its bounds alone left our bottom label sitting
+// on the last row of children. Runs after every shape is placed (saved
+// layout included), deepest boundaries first so a parent accounts for its
+// grown child. Labels are re-anchored to the bottom only when the outline
+// changed or they'd overlap the children, so a hand-placed label stays put
+// otherwise. Finally stamps the resulting size (see isUntouchedBoundary).
+function fitBoundariesToChildren(
+  section: SectionNode,
+  view: LikeC4View,
+  nodesById: Map<string, SceneNode>
+): void {
+  const pad = LEVEL_BOUNDARY.padding
+  const boundaries = view.nodes
+    .filter((n) => n.children.length > 0)
+    .sort((a, b) => b.level - a.level)
+  for (const node of boundaries) {
+    const group = nodesById.get(node.id)
+    if (!group || !isLevelBoundaryGroup(group)) continue
+    const outline = boundaryOutline(group)
+    if (!outline) continue
+
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const childId of node.children) {
+      const child = nodesById.get(childId)
+      if (!child || child.removed) continue
+      // A child wrapped with its drill-down link (appendNavigationLink)
+      // takes the wrapper's bounds, link label included.
+      const holder =
+        child.parent && child.parent.type === 'GROUP' && child.parent !== group
+          ? (child.parent as GroupNode)
+          : child
+      const pos = relativePosition(holder, section)
+      minX = Math.min(minX, pos.x)
+      minY = Math.min(minY, pos.y)
+      maxX = Math.max(maxX, pos.x + holder.width)
+      maxY = Math.max(maxY, pos.y + holder.height)
+    }
+    if (minX === Infinity) continue
+
+    const labels = group.children.filter(
+      (c): c is TextNode => c.type === 'TEXT' && (c.name === 'Título' || c.name === 'Subtítulo')
+    )
+    const title = labels.find((l) => l.name === 'Título')
+    const subtitle = labels.find((l) => l.name === 'Subtítulo')
+    const labelBlock =
+      (title?.height ?? 0) +
+      (subtitle ? LEVEL_BOUNDARY.subtitleGap + subtitle.height : 0) +
+      pad
+
+    const box = relativePosition(outline, section)
+    const left = Math.min(box.x, minX - pad)
+    const top = Math.min(box.y, minY - pad)
+    const right = Math.max(box.x + outline.width, maxX + pad)
+    const bottom = Math.max(box.y + outline.height, maxY + pad + labelBlock)
+    const changed =
+      left < box.x - 0.5 ||
+      top < box.y - 0.5 ||
+      right > box.x + outline.width + 0.5 ||
+      bottom > box.y + outline.height + 0.5
+    if (changed) {
+      outline.resize(right - left, bottom - top)
+      moveToRelative(outline, section, left, top)
+    }
+
+    const labelTop = Math.min(...labels.map((l) => relativePosition(l, section).y))
+    if (changed || labelTop < maxY + pad / 2) {
+      let y = bottom - pad
+      if (subtitle) {
+        y -= subtitle.height
+        moveToRelative(subtitle, section, left + pad, y)
+        y -= LEVEL_BOUNDARY.subtitleGap
+      }
+      if (title) moveToRelative(title, section, left + pad, y - title.height)
+      const link = group.children.find(isLinkLabel)
+      if (link) moveToRelative(link, section, right - link.width, bottom + LINK_GAP)
+    }
+    group.setPluginData(
+      BOUNDARY_GENERATED_SIZE_KEY,
+      JSON.stringify({ width: outline.width, height: outline.height })
+    )
+  }
+}
+
+// Grows (never shrinks) a reused section so newly placed elements that
+// landed outside it are still inside the diagram.
+function growSectionToFit(section: SectionNode, padding: number): void {
+  let right = section.width
+  let bottom = section.height
+  for (const child of section.children) {
+    const pos = relativePosition(child, section)
+    right = Math.max(right, pos.x + child.width + padding)
+    bottom = Math.max(bottom, pos.y + child.height + padding)
+  }
+  if (right > section.width || bottom > section.height) {
+    section.resizeWithoutConstraints(right, bottom)
+  }
+}
+
 export async function importView(
   view: LikeC4View,
-  viewIdToPageId?: Map<string, string>
+  viewIdToPageId?: Map<string, string>,
+  existing?: ExistingDiagram | null,
+  parentLinks?: ParentViewLink[]
 ) {
   await figma.loadFontAsync({ family: 'Inter', style: 'Regular' })
   await figma.loadFontAsync({ family: 'Inter', style: 'Bold' })
@@ -1236,12 +1775,21 @@ export async function importView(
   // Anchor the section near wherever the user is currently looking. This is
   // the section's own absolute page position — it isn't reparented, so this
   // assignment is safe.
-  const viewportCenter = figma.viewport.center
-  const section = figma.createSection()
+  // A re-sync reuses the section a previous sync left (see
+  // captureExistingDiagram) so it stays wherever/however big the user left it.
+  let section: SectionNode
+  if (existing) {
+    section = existing.section
+  } else {
+    const viewportCenter = figma.viewport.center
+    section = figma.createSection()
+    section.x = viewportCenter.x - contentWidth / 2 - 40
+    section.y = viewportCenter.y - contentHeight / 2 - 40
+    section.resizeWithoutConstraints(contentWidth + 80, contentHeight + 80)
+  }
   section.name = view.title || view.id
-  section.x = viewportCenter.x - contentWidth / 2 - 40
-  section.y = viewportCenter.y - contentHeight / 2 - 40
-  section.resizeWithoutConstraints(contentWidth + 80, contentHeight + 80)
+  section.setPluginData(VIEW_ID_KEY, view.id)
+  await appendBackLinks(section, parentLinks, existing?.backLinks)
 
   // Once a shape/connector is reparented into the section via appendChild,
   // Figma reinterprets its x/y as relative to the section's own top-left —
@@ -1268,6 +1816,8 @@ export async function importView(
 
   let skippedNodes = 0
   let firstNodeError: string | null = null
+  let preservedNodes = 0
+  let preservedEdges = 0
 
   for (const node of sortedNodes) {
     try {
@@ -1278,8 +1828,15 @@ export async function importView(
       // a person icon can end up narrower/shorter (see createPersonIconNode)
       // and gets centered in the space LikeC4 allocated for it instead of
       // sitting flush against its top-left corner.
-      shape.x = node.x + offsetX + (node.width - shape.width) / 2
-      shape.y = node.y + offsetY + (node.height - shape.height) / 2
+      const saved = existing?.layouts.get(node.id)
+      if (saved) {
+        applySavedLayout(shape, saved, section)
+        preservedNodes++
+      } else {
+        shape.x = node.x + offsetX + (node.width - shape.width) / 2
+        shape.y = node.y + offsetY + (node.height - shape.height) / 2
+      }
+      shape.setPluginData(NODE_ID_KEY, node.id)
       nodesById.set(node.id, shape)
       const targetPageId = node.navigateTo && viewIdToPageId?.get(node.navigateTo)
       if (targetPageId) await appendNavigationLink(shape, container, targetPageId)
@@ -1291,6 +1848,7 @@ export async function importView(
 
   let skippedEdges = 0
   let firstEdgeError: string | null = null
+  const usedConnectors = new Set<SceneNode>()
 
   for (const edge of view.edges) {
     const source = nodesById.get(edge.source)
@@ -1298,25 +1856,26 @@ export async function importView(
     if (!source || !target) continue
 
     try {
+      const reused = existing?.connectors.get(edge.id)
+      if (reused && !reused.removed) {
+        // Keep the very same connector node (and with it any routing the
+        // plugin API can't read) and just move its ends onto the new shapes.
+        reused.connectorStart = repointEndpoint(reused.connectorStart, source.id)
+        reused.connectorEnd = repointEndpoint(reused.connectorEnd, target.id)
+        await applyEdgeStyle(reused, edge, storedEdgeSignature(reused, edge))
+        reused.setPluginData(EDGE_ID_KEY, edge.id)
+        // Re-append so it stays drawn above the re-created shapes.
+        section.appendChild(reused)
+        usedConnectors.add(reused)
+        preservedEdges++
+        continue
+      }
+
       const connector = figma.createConnector()
-      connector.connectorLineType = 'STRAIGHT'
       connector.connectorStart = { endpointNodeId: source.id, magnet: 'CENTER' }
       connector.connectorEnd = { endpointNodeId: target.id, magnet: 'CENTER' }
-
-      const rgb = edge.color ? colorForName(edge.color) : EDGE_DEFAULT_GRAY
-      connector.strokes = [{ type: 'SOLID', color: rgb }]
-      connector.strokeWeight = 4
-      if ((edge.line || 'dashed').toLowerCase() !== 'solid') {
-        connector.dashPattern = [16, 10]
-      }
-      connector.connectorEndStrokeCap = edge.head === 'none' ? 'NONE' : 'ARROW_EQUILATERAL'
-      connector.connectorStartStrokeCap =
-        edge.tail && edge.tail !== 'none' ? 'ARROW_EQUILATERAL' : 'NONE'
-
-      if (edge.label) {
-        connector.text.characters = edge.label
-        connector.text.fontSize = 11
-      }
+      await applyEdgeStyle(connector, edge, null)
+      connector.setPluginData(EDGE_ID_KEY, edge.id)
 
       section.appendChild(connector)
     } catch (err) {
@@ -1324,6 +1883,18 @@ export async function importView(
       if (!firstEdgeError) firstEdgeError = err instanceof Error ? err.message : String(err)
     }
   }
+
+  if (existing) {
+    // Only now that every kept connector points at a new shape is it safe to
+    // drop the old ones (and connectors of edges removed from the source).
+    for (const child of existing.previousChildren) {
+      if (!usedConnectors.has(child) && !child.removed) child.remove()
+    }
+  }
+  fitBoundariesToChildren(section, view, nodesById)
+  // Boundaries get a label band LikeC4's bounds don't account for (see
+  // fitBoundariesToChildren), so a fresh section can need a bit more room too.
+  growSectionToFit(section, 40)
 
   figma.currentPage.selection = [section]
   figma.viewport.scrollAndZoomIntoView([section])
@@ -1335,6 +1906,8 @@ export async function importView(
     skippedEdges,
     firstNodeError,
     firstEdgeError,
+    preservedNodes,
+    preservedEdges,
   }
 }
 
@@ -1366,7 +1939,8 @@ const SEQ = {
 
 export async function importSequenceView(
   view: LikeC4View,
-  viewIdToPageId?: Map<string, string>
+  viewIdToPageId?: Map<string, string>,
+  parentLinks?: ParentViewLink[]
 ) {
   await figma.loadFontAsync({ family: 'Inter', style: 'Regular' })
   await figma.loadFontAsync({ family: 'Inter', style: 'Bold' })
@@ -1426,6 +2000,7 @@ export async function importSequenceView(
   section.x = viewportCenter.x - contentWidth / 2 - SEQ.sidePad
   section.y = viewportCenter.y - contentHeight / 2 - SEQ.sidePad
   section.resizeWithoutConstraints(contentWidth + SEQ.sidePad * 2, contentHeight + SEQ.sidePad * 2)
+  await appendBackLinks(section, parentLinks)
 
   const offsetX = -minX + SEQ.sidePad
   const offsetY = SEQ.sidePad

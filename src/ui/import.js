@@ -178,6 +178,11 @@ function renderSyncResult(msg) {
     const parts = [
         `Synced ${total} view(s) — ${created} new page(s), ${updated} updated.`,
     ];
+    const keptNodes = msg.results.reduce((n, r) => n + (r.preservedNodes || 0), 0);
+    const keptEdges = msg.results.reduce((n, r) => n + (r.preservedEdges || 0), 0);
+    if (keptNodes || keptEdges) {
+        parts.push(`Kept your layout for ${keptNodes} element(s) and ${keptEdges} connector(s).`);
+    }
     if (errors.length) {
         parts.push(
             `${errors.length} view(s) failed (e.g. "${errors[0].title}": ${errors[0].error}).`,

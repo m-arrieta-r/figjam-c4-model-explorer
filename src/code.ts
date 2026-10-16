@@ -2,9 +2,11 @@ import {
   extractViews,
   importView,
   importSequenceView,
+  captureExistingDiagram,
+  ParentViewLink,
   createLevelBoundaryNode,
 } from "./import/import";
-import type { LikeC4Node } from "./import/likec4-types";
+import type { LikeC4Node, LikeC4View } from "./import/likec4-types";
 import { BASE_C4_TEMPLATES } from "./import/base-c4-template";
 
 figma.showUI(__html__, { width: 480, height: 640, themeColors: true });
@@ -1410,19 +1412,74 @@ interface SyncViewResult {
   edgeCount: number;
   skippedNodes: number;
   skippedEdges: number;
+  preservedNodes: number;
+  preservedEdges: number;
   error: string | null;
+}
+
+// Picks each view's parent view for the "back" link. A view scoped to
+// element X (`viewOf`, or - when the export lacks it - the element other
+// views drill in from) is drilled into from views that show X; its parent is
+// the one among those whose own scope is X itself (e.g. a system's context
+// view above its container view) or the nearest ancestor of X (ids are
+// dotted fqns, "wink.app"), else an unscoped view (the landscape/index).
+// Views drilled into from a sibling's scope only (another system's context
+// view) don't qualify.
+function findParentViews(views: Record<string, LikeC4View>): Map<string, string> {
+  const drillIns = new Map<
+    string,
+    Array<{ from: string; element: string; expanded: boolean }>
+  >();
+  for (const [key, view] of Object.entries(views)) {
+    for (const node of view.nodes) {
+      const target = node.navigateTo;
+      if (!target || target === key || !views[target]) continue;
+      const list = drillIns.get(target) ?? [];
+      list.push({ from: key, element: node.id, expanded: node.children.length > 0 });
+      drillIns.set(target, list);
+    }
+  }
+  const scopeOf = (key: string): string | null =>
+    views[key].viewOf ?? drillIns.get(key)?.[0]?.element ?? null;
+
+  const result = new Map<string, string>();
+  for (const [key, entries] of drillIns) {
+    const element = views[key].viewOf ?? entries[0].element;
+    let best: { from: string; depth: number } | null = null;
+    for (const { from, expanded } of entries) {
+      const scope = scopeOf(from);
+      let depth: number;
+      if (scope === null) depth = 0;
+      else if (element.startsWith(`${scope}.`)) depth = scope.split(".").length;
+      // Same scope (e.g. a system's context view vs. its container view):
+      // only the one showing the element collapsed, as a single box, is
+      // above - otherwise the two would each list the other as parent.
+      else if (scope === element && !expanded) depth = scope.split(".").length + 0.5;
+      else continue;
+      if (
+        !best ||
+        depth > best.depth ||
+        (depth === best.depth && from === "index" && best.from !== "index")
+      ) {
+        best = { from, depth };
+      }
+    }
+    if (best) result.set(key, best.from);
+  }
+  return result;
 }
 
 // Syncs every view in a LikeC4 JSON export to its own FigJam page: one page
 // per view, matched to an existing page by exact name === view title (the
 // same string importView() already uses as the section name for a single
-// import). Re-running this against the same file is idempotent by design —
-// "wipe & rebuild": each matched page's entire content is cleared before
-// importView/importSequenceView regenerates it, rather than diffing against
-// whatever's already there. That's deliberately simple (no per-node
-// provenance tracking needed) at the cost of discarding any manual
-// repositioning done on that page between syncs — acceptable since these
-// pages are meant to mirror the LikeC4 source, not be hand-edited.
+// import). Re-running this against the same file is idempotent: content is
+// regenerated from the LikeC4 source every time, but for regular (non-
+// sequence) views the manual layout from the previous sync is kept -
+// captureExistingDiagram() (import.ts) reads the existing section first and
+// importView() puts every still-existing element back where it was and
+// reuses its connectors (magnets, line type, routing, manual styling). See
+// the comment above captureExistingDiagram for the details. Sequence views
+// are a computed grid, so those are still wiped & rebuilt.
 // Matching by name also means renaming a synced page breaks the link (a new
 // page gets created next sync instead of updating the renamed one) - a
 // known tradeoff, not a bug.
@@ -1455,20 +1512,56 @@ async function syncAllViews(text: string): Promise<SyncViewResult[]> {
     viewIdToPageId.set(key, page.id);
   }
 
+  // "Back up a level" links (see appendBackLinks), one per view: its parent
+  // view, not every view that drills into it. LikeC4 sets `navigateTo` on an
+  // element wherever it appears, so e.g. a software system's context view
+  // is drilled into from every *sibling* system's context view that shows
+  // it as a neighbor, not only from the landscape/index view above it.
+  const parentLinks = new Map<string, ParentViewLink[]>();
+  const parentOf = findParentViews(views);
+  for (const [key, parentKey] of parentOf) {
+    const parent = views[parentKey];
+    parentLinks.set(key, [
+      { viewId: parentKey, title: parent.title || parentKey, pageId: pages.get(parentKey)!.id },
+    ]);
+  }
+
   for (const [key, view] of Object.entries(views)) {
     const title = view.title || key;
     const page = pages.get(key)!;
     const created = createdPages.has(key);
-    // Wipe: drop everything currently on the page before rebuilding it from
-    // this view. importView/importSequenceView both operate on
-    // figma.currentPage, so it's switched for the duration of this import.
-    for (const child of [...page.children]) child.remove();
+    // Capture the previous sync's layout (see captureExistingDiagram), then
+    // drop everything else on the page before rebuilding it from this view.
+    // importView/importSequenceView both operate on figma.currentPage, so
+    // it's switched for the duration of this import.
+    let existing: ReturnType<typeof captureExistingDiagram> = null;
+    if (view.variant !== "sequence") {
+      try {
+        existing = captureExistingDiagram(page, view);
+      } catch (err) {
+        console.error(`[extract-c4] sync "${title}": could not read the previous layout`, err);
+      }
+    }
+    console.log(
+      `[extract-c4] sync "${title}": ` +
+        (existing
+          ? `reusing section "${existing.section.name}" - matched ${existing.layouts.size}/${view.nodes.length} element(s), ${existing.connectors.size}/${view.edges.length} connector(s)`
+          : "no previous diagram found, building from scratch") +
+        `; back link -> ${parentLinks.get(key)?.[0]?.title ?? "(none)"}`,
+    );
+    for (const child of [...page.children]) {
+      if (child !== existing?.section) child.remove();
+    }
     await figma.setCurrentPageAsync(page);
     try {
       const result =
         view.variant === "sequence"
-          ? await importSequenceView(view, viewIdToPageId)
-          : await importView(view, viewIdToPageId);
+          ? {
+              ...(await importSequenceView(view, viewIdToPageId, parentLinks.get(key))),
+              preservedNodes: 0,
+              preservedEdges: 0,
+            }
+          : await importView(view, viewIdToPageId, existing, parentLinks.get(key));
       results.push({
         viewId: key,
         title,
@@ -1478,6 +1571,8 @@ async function syncAllViews(text: string): Promise<SyncViewResult[]> {
         edgeCount: result.edgeCount,
         skippedNodes: result.skippedNodes,
         skippedEdges: result.skippedEdges,
+        preservedNodes: result.preservedNodes,
+        preservedEdges: result.preservedEdges,
         error: null,
       });
     } catch (err) {
@@ -1490,6 +1585,8 @@ async function syncAllViews(text: string): Promise<SyncViewResult[]> {
         edgeCount: 0,
         skippedNodes: 0,
         skippedEdges: 0,
+        preservedNodes: 0,
+        preservedEdges: 0,
         error: err instanceof Error ? err.message : String(err),
       });
     }

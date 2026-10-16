@@ -167,6 +167,16 @@ text extraction above:
   see "Errors tab" below — rather than exporting a garbled multi-line
   identifier source silently.
 
+Boundaries the LikeC4 importer draws (`createLevelBoundaryNode`) follow the
+same bottom-left label convention, but LikeC4 reserves its compound-node
+title band at the *top*, so its bounds left our bottom label sitting on the
+last row of children. `fitBoundariesToChildren()` (end of `importView`, after
+saved layouts are applied) grows - never shrinks - every boundary, deepest
+first, to enclose its LikeC4 children with padding plus a bottom band for the
+label, and re-anchors the labels there. The resulting size is stamped as
+`likec4BoundarySize`; a re-sync keeps a boundary's size only if it differs
+from that stamp (i.e. the user resized it), and still grows it if needed.
+
 Both exporters group containers by `boundaryId` via `groupByBoundary()`
 (`export-shared.js`): Mermaid wraps them in `System_Boundary`/
 `Container_Boundary`/`Enterprise_Boundary` (picked from the boundary's
@@ -416,6 +426,56 @@ per-system `index.c4`, instead of leaving each board's stub declarations of
 systems it merely references scattered across whichever file happened to
 draw a connector to them. Shares the `includeLikeC4Specification` toggle
 with the LikeC4 DSL format (only emits the `softwareS
+
+## LikeC4 import: "Sync all" keeps manual layout
+
+"Sync all" (`syncAllViews` in `code.ts`) maps each LikeC4 view to a page
+named after it and regenerates its content from the JSON, but for regular
+(non-sequence) views it does **not** wipe & rebuild blindly anymore - people
+hand-tune these diagrams and a one-word description change must not undo
+that. `captureExistingDiagram()` (`src/import/import.ts`) reads the section
+the previous sync left, and `importView(view, viewIdToPageId, existing)`:
+
+- reuses that `SECTION` (position/size kept; only grown if new elements land
+  outside it),
+- re-creates every shape (so text changes land) but puts it back at its saved
+  section-relative position; level boundaries also keep their outline size
+  and label offsets *if the user resized them* (compared against the
+  generated size stored as `likec4BoundarySize`; unstamped legacy boundaries
+  keep their size), cards resized on canvas are
+  `rescale()`d to match,
+- keeps every connector whose edge still exists as the **same node**, only
+  re-pointing its ends at the new shapes with the original magnet/attach
+  point - so line type, manual elbow routing and label position survive -
+  and re-applies label/color/dash/arrowheads only for fields that changed in
+  the LikeC4 source since the last sync (`likec4EdgeSig` plugin data).
+  Old shapes are removed only after every kept connector is re-pointed.
+
+Identity comes from plugin data stamped during import (`likec4ViewId` on the
+section, `likec4NodeId` on shapes, `likec4EdgeId` on connectors). Pages
+synced before that existed fall back to matching shapes by name (only when
+the title is unique on both sides) and connectors by their (source, target)
+pair. Elements new in the source get the regular LikeC4 coordinates;
+elements removed from it are deleted. Sequence views are a computed grid
+and are still wiped & rebuilt. The single-view "Import" button always
+creates a fresh section.
+
+Navigation links go both ways during Sync all: a node with `navigateTo` gets
+a drill-down `link 🔗` (`appendNavigationLink`), and every view with a
+parent gets one `↑ <parent view title>` hyperlink in its section's top-left
+padding (`appendBackLinks`). The parent comes from `findParentViews()`
+(`code.ts`), **not** from "any view that drills into this one": LikeC4 sets
+`navigateTo` on an element everywhere it appears, so a system's context view
+is drilled into from every sibling system's context view too (that bug
+showed up as a row of 20+ back links). Among views drilling in, only one
+scoped (`viewOf`, or inferred from where it's drilled into from) to the
+nearest ancestor of the element qualifies - or one with the same scope that
+shows the element collapsed (context view above container view) - else an
+unscoped view (`index` preferred). Both are TEXT nodes named
+`link` with a `NODE` hyperlink, so the extractor ignores them
+(`isNavLinkText`).
+Back links are tagged `likec4BackLink` and keep their position across
+re-syncs. A single-view "Import" has no other pages, so it gets neither.
 
 ## Relaunch button (canvas → plugin)
 
