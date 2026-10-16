@@ -1414,6 +1414,8 @@ interface SyncViewResult {
   skippedEdges: number;
   preservedNodes: number;
   preservedEdges: number;
+  firstNodeError: string | null;
+  firstEdgeError: string | null;
   error: string | null;
 }
 
@@ -1466,7 +1468,57 @@ function findParentViews(views: Record<string, LikeC4View>): Map<string, string>
     }
     if (best) result.set(key, best.from);
   }
+
+  // Views nothing drills into still need a way up. LikeC4 only navigates
+  // from an element to *one* of its views (its context view), so e.g. a
+  // system's Containers view is never a `navigateTo` target. Fall back to a
+  // view with the same scope that does have a place in the hierarchy, or -
+  // when the export has no `viewOf` - to the "<X> - System Context" view of a
+  // "<X> - Containers" view. Views with no scope and no title match (the
+  // landscape/index root) get no back link.
+  for (const [key, view] of Object.entries(views)) {
+    // Also for views that *are* drilled into but only from below or from
+    // siblings (a Containers view is the target of its own component views'
+    // boundary), which the pass above rightly didn't accept as parents.
+    if (result.has(key)) continue;
+    let parent: string | undefined;
+    if (view.viewOf) {
+      parent = Object.keys(views).find(
+        (other) =>
+          other !== key &&
+          views[other].viewOf === view.viewOf &&
+          result.has(other) &&
+          result.get(other) !== key,
+      );
+    }
+    if (!parent) {
+      const match = (view.title || "").match(/^(.*) - Containers$/);
+      if (match) {
+        // "<X> - System Context", else a view titled just "<X>" (e.g. the
+        // landscape's own Containers view).
+        for (const candidate of [`${match[1]} - System Context`, match[1]]) {
+          parent ??= Object.keys(views).find(
+            (other) => other !== key && views[other].title === candidate,
+          );
+        }
+      }
+    }
+    if (parent) result.set(key, parent);
+  }
   return result;
+}
+
+// A connector left behind by an edge that failed mid-creation in an earlier
+// build: both ends attached to the page itself (never to a shape) and no
+// label. Nothing a person draws looks like that - an arrow dropped on empty
+// canvas has free ends - so these are safe to clean up.
+function isAbandonedConnector(connector: ConnectorNode, page: PageNode): boolean {
+  const onPage = (e: ConnectorEndpoint) => "endpointNodeId" in e && e.endpointNodeId === page.id;
+  return (
+    onPage(connector.connectorStart) &&
+    onPage(connector.connectorEnd) &&
+    connector.text.characters.trim() === ""
+  );
 }
 
 // Syncs every view in a LikeC4 JSON export to its own FigJam page: one page
@@ -1483,7 +1535,9 @@ function findParentViews(views: Record<string, LikeC4View>): Map<string, string>
 // Matching by name also means renaming a synced page breaks the link (a new
 // page gets created next sync instead of updating the renamed one) - a
 // known tradeoff, not a bug.
-async function syncAllViews(text: string): Promise<SyncViewResult[]> {
+async function syncAllViews(
+  text: string,
+): Promise<{ results: SyncViewResult[]; orphanPages: string[] }> {
   await figma.loadAllPagesAsync();
   const views = extractViews(JSON.parse(text));
   const originalPage = figma.currentPage;
@@ -1549,8 +1603,13 @@ async function syncAllViews(text: string): Promise<SyncViewResult[]> {
           : "no previous diagram found, building from scratch") +
         `; back link -> ${parentLinks.get(key)?.[0]?.title ?? "(none)"}`,
     );
+    // Only replace the diagram itself: drop previous diagram sections, but
+    // keep anything else on the page (connectors or notes drawn outside the
+    // section) - the sync used to wipe the whole page and silently delete
+    // those.
     for (const child of [...page.children]) {
-      if (child !== existing?.section) child.remove();
+      if (child.type === "SECTION" && child !== existing?.section) child.remove();
+      else if (child.type === "CONNECTOR" && isAbandonedConnector(child, page)) child.remove();
     }
     await figma.setCurrentPageAsync(page);
     try {
@@ -1573,6 +1632,8 @@ async function syncAllViews(text: string): Promise<SyncViewResult[]> {
         skippedEdges: result.skippedEdges,
         preservedNodes: result.preservedNodes,
         preservedEdges: result.preservedEdges,
+        firstNodeError: result.firstNodeError,
+        firstEdgeError: result.firstEdgeError,
         error: null,
       });
     } catch (err) {
@@ -1587,13 +1648,28 @@ async function syncAllViews(text: string): Promise<SyncViewResult[]> {
         skippedEdges: 0,
         preservedNodes: 0,
         preservedEdges: 0,
+        firstNodeError: null,
+        firstEdgeError: null,
         error: err instanceof Error ? err.message : String(err),
       });
     }
   }
 
   await figma.setCurrentPageAsync(originalPage);
-  return results;
+
+  // Pages that look like an earlier sync's output (a SECTION named like the
+  // page, the convention importView uses) but whose view is no longer in
+  // the export - e.g. after views were renamed or translated. Sync never
+  // deletes pages; this only reports them so they can be cleaned up by hand.
+  const syncedPageIds = new Set([...pages.values()].map((p) => p.id));
+  const orphanPages = figma.root.children
+    .filter(
+      (p) =>
+        !syncedPageIds.has(p.id) &&
+        p.children.some((c) => c.type === "SECTION" && c.name === p.name),
+    )
+    .map((p) => p.name);
+  return { results, orphanPages };
 }
 
 function findPage(node: BaseNode): PageNode | null {
@@ -1659,14 +1735,14 @@ figma.ui.onmessage = async (
   }
   if (msg.type === "sync-all" && msg.text) {
     try {
-      const results = await syncAllViews(msg.text);
+      const { results, orphanPages } = await syncAllViews(msg.text);
       if (msg.fileName) {
         lastImportFileName = msg.fileName;
         lastImportText = msg.text;
         figma.clientStorage.setAsync("lastImportFileName", lastImportFileName);
         figma.clientStorage.setAsync("lastImportText", lastImportText);
       }
-      figma.ui.postMessage({ type: "synced", results, fileName: msg.fileName || null });
+      figma.ui.postMessage({ type: "synced", results, orphanPages, fileName: msg.fileName || null });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       figma.ui.postMessage({ type: "error", source: "sync-all", message });

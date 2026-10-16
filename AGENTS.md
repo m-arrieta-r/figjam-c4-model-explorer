@@ -436,8 +436,8 @@ hand-tune these diagrams and a one-word description change must not undo
 that. `captureExistingDiagram()` (`src/import/import.ts`) reads the section
 the previous sync left, and `importView(view, viewIdToPageId, existing)`:
 
-- reuses that `SECTION` (position/size kept; only grown if new elements land
-  outside it),
+- reuses that `SECTION` (same node; its size is recomputed every sync, see
+  below),
 - re-creates every shape (so text changes land) but puts it back at its saved
   section-relative position; level boundaries also keep their outline size
   and label offsets *if the user resized them* (compared against the
@@ -451,6 +451,48 @@ the previous sync left, and `importView(view, viewIdToPageId, existing)`:
   the LikeC4 source since the last sync (`likec4EdgeSig` plugin data).
   Old shapes are removed only after every kept connector is re-pointed.
 
+Connector ends: `spreadConnectorEnds()` (`import.ts`) attaches each end at an
+explicit point (`{ endpointNodeId, position }`) on the side of its shape that
+faces the other end, spreading the ends that share a side evenly and ordered
+by the other end's position. Attaching everything to `CENTER` fanned a busy
+shape's 15+ relations out of one point, piling lines and labels on top of each
+other. It only touches ends the plugin owns: new connectors, or kept ones
+whose end is still `CENTER` or exactly the point stamped in `likec4AutoEnds`.
+An end the user re-attached is left alone. Boundaries (GROUPs) keep `CENTER`.
+
+Section size: every import/sync ends with `fitSectionToContent()`, which
+fits the section to its content's bounding box + 40px on each side, shrinking
+as well as growing, and shifts the section origin and the children in
+opposite directions so nothing moves on the canvas. Connectors and back links
+are left out of the bounds. Don't size from LikeC4's `view.bounds` (it also
+covers edge routes/labels) or make this grow-only again: both left sections
+far wider than the diagram.
+
+On each synced page only previous diagram `SECTION`s are removed. Anything
+else on the page (connectors or notes drawn outside the section) is kept.
+The sync used to wipe the whole page and silently delete those. After
+syncing, `syncAllViews` also reports "orphan" pages: pages holding a section
+named like the page (the sync's convention) whose view is no longer in the
+export, e.g. after views were renamed or translated. It never deletes pages;
+the UI just lists them in the sync status.
+
+Failure handling, all learned from real syncs:
+- A new connector goes into the section right after `createConnector()` and
+  is removed again if configuring it throws. Otherwise it was left at page
+  level in its default state (0,0 -> 200,0, both ends on the page), one more
+  per failing edge on every sync. `isAbandonedConnector()` (`code.ts`) cleans
+  up those leftovers: both ends on the page and no label.
+- Connectors attach to a level boundary's outline `RECTANGLE`, not to its
+  GROUP (`attachable()` in `importView`).
+- Removing the previous diagram's nodes is done connectors first, each in its
+  own try/catch. FigJam auto-deletes a connector whose shape is removed, and
+  the later `remove()` on it threw "node does not exist", aborting the view
+  and leaving every old shape duplicated under its new copy. A re-sync heals
+  such a page: both copies share a position, the layout is read from one,
+  and both are removed.
+- Each `SyncViewResult` carries `firstNodeError`/`firstEdgeError`, which the
+  sync status shows, and every skipped edge is logged with its ids.
+
 Identity comes from plugin data stamped during import (`likec4ViewId` on the
 section, `likec4NodeId` on shapes, `likec4EdgeId` on connectors). Pages
 synced before that existed fall back to matching shapes by name (only when
@@ -462,8 +504,9 @@ creates a fresh section.
 
 Navigation links go both ways during Sync all: a node with `navigateTo` gets
 a drill-down `link 🔗` (`appendNavigationLink`), and every view with a
-parent gets one `↑ <parent view title>` hyperlink in its section's top-left
-padding (`appendBackLinks`). The parent comes from `findParentViews()`
+parent gets one `↑ <parent view title>` hyperlink pinned to its section's
+bottom-right corner, inside the padding (`appendBackLinks`, called after the
+section reaches its final size). The parent comes from `findParentViews()`
 (`code.ts`), **not** from "any view that drills into this one": LikeC4 sets
 `navigateTo` on an element everywhere it appears, so a system's context view
 is drilled into from every sibling system's context view too (that bug
@@ -471,11 +514,15 @@ showed up as a row of 20+ back links). Among views drilling in, only one
 scoped (`viewOf`, or inferred from where it's drilled into from) to the
 nearest ancestor of the element qualifies - or one with the same scope that
 shows the element collapsed (context view above container view) - else an
-unscoped view (`index` preferred). Both are TEXT nodes named
+unscoped view (`index` preferred). A view nothing drills into (LikeC4 only
+navigates from an element to its context view, so every "X - Containers"
+view) falls back to another view with the same `viewOf` that has a place in
+the hierarchy, or, without `viewOf`, to "X - System Context" by title. Both are TEXT nodes named
 `link` with a `NODE` hyperlink, so the extractor ignores them
 (`isNavLinkText`).
-Back links are tagged `likec4BackLink` and keep their position across
-re-syncs. A single-view "Import" has no other pages, so it gets neither.
+Back links are tagged `likec4BackLink` and are re-placed in that corner on
+every sync, deliberately ignoring where they were moved - the user wants them
+in the same spot on every page. A single-view "Import" has no other pages, so it gets neither.
 
 ## Relaunch button (canvas → plugin)
 

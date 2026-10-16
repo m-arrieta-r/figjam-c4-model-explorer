@@ -188,6 +188,20 @@ function renderSyncResult(msg) {
             `${errors.length} view(s) failed (e.g. "${errors[0].title}": ${errors[0].error}).`,
         );
     }
+    const skipped = msg.results.filter((r) => r.skippedNodes || r.skippedEdges);
+    if (skipped.length) {
+        const first = skipped[0];
+        const why = first.firstEdgeError || first.firstNodeError;
+        parts.push(
+            `${skipped.length} view(s) skipped some element(s)/connector(s) (e.g. "${first.title}"${why ? `: ${why}` : ""}).`,
+        );
+    }
+    const orphans = msg.orphanPages || [];
+    if (orphans.length) {
+        parts.push(
+            `${orphans.length} page(s) look like an earlier sync but their view is no longer in this export (not deleted): ${orphans.join(", ")}.`,
+        );
+    }
     setSyncStatus(parts.join(" "), errors.length ? "error" : "success");
 }
 

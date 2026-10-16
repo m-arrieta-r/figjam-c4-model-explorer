@@ -1187,18 +1187,17 @@ const BACK_LINK_KEY = 'likec4BackLink'
 const BACK_LINK_INSET = 12
 const BACK_LINK_GAP = 16
 
-// Puts one "← <parent view>" hyperlink per parent view in the section's
-// top-left corner (in the 40px padding importView/importSequenceView leave
-// above the content). Named 'link' like the drill-down links so the
-// extractor ignores them the same way (isNavLinkText in code.ts). `saved`
-// holds where the user moved each one on a previous sync (keyed by parent
-// view id, see captureExistingDiagram).
+// Puts the "↑ <parent view>" hyperlink in the section's bottom-right
+// corner, inside the 40px padding importView/importSequenceView leave around
+// the content. Always that corner, on every sync (never a saved position), so
+// it's in the same place on every page: call it once the section has its
+// final size. Named 'link' like the drill-down links so the extractor
+// ignores them the same way (isNavLinkText in code.ts).
 async function appendBackLinks(
   section: SectionNode,
-  parents: ParentViewLink[] | undefined,
-  saved?: Map<string, { x: number; y: number }>
+  parents: ParentViewLink[] | undefined
 ): Promise<void> {
-  let x = BACK_LINK_INSET
+  let right = section.width - BACK_LINK_INSET
   for (const parent of parents ?? []) {
     const link = figma.createText()
     link.name = 'link'
@@ -1211,14 +1210,9 @@ async function appendBackLinks(
     link.setPluginData(BACK_LINK_KEY, parent.viewId)
     section.appendChild(link)
     stabilizeAfterAppend(link)
-    const pos = saved?.get(parent.viewId)
-    if (pos) {
-      moveToRelative(link, section, pos.x, pos.y)
-    } else {
-      link.x = x
-      link.y = BACK_LINK_INSET
-    }
-    x += link.width + BACK_LINK_GAP
+    link.x = right - link.width
+    link.y = section.height - link.height - BACK_LINK_INSET
+    right = link.x - BACK_LINK_GAP
   }
 }
 
@@ -1330,8 +1324,6 @@ export interface ExistingDiagram {
   section: SectionNode
   layouts: Map<string, SavedShapeLayout>
   connectors: Map<string, ConnectorNode>
-  // Where each "back to parent view" link was (see appendBackLinks).
-  backLinks: Map<string, { x: number; y: number }>
   // Everything that was in the section when it was captured. Whatever wasn't
   // reused (old shapes, link labels, connectors of removed edges) is deleted
   // once the new diagram is in place.
@@ -1533,17 +1525,7 @@ export function captureExistingDiagram(page: PageNode, view: LikeC4View): Existi
     if (edge) connectors.set(edge.id, connector)
   }
 
-  const backLinks = new Map<string, { x: number; y: number }>()
-  for (const child of section.children) {
-    const parentViewId = child.type === 'TEXT' ? child.getPluginData(BACK_LINK_KEY) : ''
-    if (parentViewId) backLinks.set(parentViewId, relativePosition(child, section))
-  }
-  // An earlier build put a whole row of back links (one per view drilling
-  // in); their slots in that row aren't a position anyone chose, so only a
-  // lone back link's position counts as user-placed.
-  if (backLinks.size > 1) backLinks.clear()
-
-  return { section, layouts, connectors, backLinks, previousChildren: [...section.children] }
+  return { section, layouts, connectors, previousChildren: [...section.children] }
 }
 
 function applySavedLayout(shape: SceneNode, saved: SavedShapeLayout, section: SectionNode): void {
@@ -1578,14 +1560,20 @@ function applySavedLayout(shape: SceneNode, saved: SavedShapeLayout, section: Se
 
 // Re-points a kept connector's end at the freshly created shape, keeping the
 // side/magnet (or exact attach point) the user chose.
-function repointEndpoint(previous: ConnectorEndpoint, nodeId: string): ConnectorEndpoint {
+function repointEndpoint(
+  previous: ConnectorEndpoint,
+  nodeId: string,
+  lineType: ConnectorNode['connectorLineType']
+): ConnectorEndpoint {
+  // Elbowed connectors reject the CENTER magnet; AUTO is the nearest match.
+  const center: 'AUTO' | 'CENTER' = lineType === 'ELBOWED' ? 'AUTO' : 'CENTER'
   if ('endpointNodeId' in previous && 'magnet' in previous) {
-    return { endpointNodeId: nodeId, magnet: previous.magnet }
+    return { endpointNodeId: nodeId, magnet: previous.magnet === 'CENTER' ? center : previous.magnet }
   }
   if ('endpointNodeId' in previous && 'position' in previous) {
     return { endpointNodeId: nodeId, position: previous.position }
   }
-  return { endpointNodeId: nodeId, magnet: 'CENTER' }
+  return { endpointNodeId: nodeId, magnet: center }
 }
 
 // Applies an edge's LikeC4 styling to a connector. `previous` is what the
@@ -1732,18 +1720,143 @@ function fitBoundariesToChildren(
   }
 }
 
-// Grows (never shrinks) a reused section so newly placed elements that
-// landed outside it are still inside the diagram.
-function growSectionToFit(section: SectionNode, padding: number): void {
-  let right = section.width
-  let bottom = section.height
-  for (const child of section.children) {
+// Sizes the section to exactly its content plus `padding` on every side,
+// shrinking as well as growing - LikeC4's own `view.bounds` (which also
+// covers edge routes/labels), connector bounding boxes and an earlier
+// sync's grow-only sizing all used to leave sections far wider than the
+// diagram. Moves the section's origin to the content's top-left and shifts
+// the children back by the same amount, so nothing moves on the canvas.
+// Connectors are left out of the bounds (their ends follow the shapes they're
+// attached to) and so are the back links, which are placed in the corner
+// afterwards (appendBackLinks).
+function fitSectionToContent(section: SectionNode, padding: number): void {
+  const content = section.children.filter(
+    (c) => c.type !== 'CONNECTOR' && !(c.type === 'TEXT' && c.getPluginData(BACK_LINK_KEY))
+  )
+  if (content.length === 0) return
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const child of content) {
     const pos = relativePosition(child, section)
-    right = Math.max(right, pos.x + child.width + padding)
-    bottom = Math.max(bottom, pos.y + child.height + padding)
+    const box = child.absoluteBoundingBox
+    const width = box ? box.width : child.width
+    const height = box ? box.height : child.height
+    const x = box ? box.x - section.absoluteTransform[0][2] : pos.x
+    const y = box ? box.y - section.absoluteTransform[1][2] : pos.y
+    minX = Math.min(minX, x)
+    minY = Math.min(minY, y)
+    maxX = Math.max(maxX, x + width)
+    maxY = Math.max(maxY, y + height)
   }
-  if (right > section.width || bottom > section.height) {
-    section.resizeWithoutConstraints(right, bottom)
+  const dx = minX - padding
+  const dy = minY - padding
+  if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+    section.x += dx
+    section.y += dy
+    for (const child of content) {
+      child.x -= dx
+      child.y -= dy
+    }
+  }
+  section.resizeWithoutConstraints(maxX - minX + padding * 2, maxY - minY + padding * 2)
+}
+
+// --- Spreading connector ends ---------------------------------------------
+// Attaching every connector to its shapes' CENTER magnet made a shape with
+// many relations (e.g. one container calling 15+ systems) fan all of them
+// out of one single point, so the lines and their labels piled on top of
+// each other near that shape. Instead each end is attached at an explicit
+// point on the side of its shape that faces the other end, and the ends
+// sharing a side are spread evenly along it, ordered by where the other end
+// is - so the lines leave from distinct points, don't cross each other, and
+// their labels land in different places.
+// Only ends the plugin owns are touched: a new connector's, or a kept one's
+// whose end is still exactly where a previous sync put it (CENTER magnet, or
+// the point stamped in AUTO_ENDS_KEY) - an end the user re-attached stays.
+const AUTO_ENDS_KEY = 'likec4AutoEnds'
+
+type EndSide = 'TOP' | 'BOTTOM' | 'LEFT' | 'RIGHT'
+
+interface OwnedEnd {
+  connector: ConnectorNode
+  which: 'start' | 'end'
+  shape: SceneNode
+  other: SceneNode
+}
+
+function centerOf(node: SceneNode): { x: number; y: number } {
+  const box = node.absoluteBoundingBox
+  if (box) return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  return { x: node.absoluteTransform[0][2] + node.width / 2, y: node.absoluteTransform[1][2] + node.height / 2 }
+}
+
+function storedAutoEnds(connector: ConnectorNode): { start?: Vector; end?: Vector } {
+  const raw = connector.getPluginData(AUTO_ENDS_KEY)
+  if (!raw) return {}
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return {}
+  }
+}
+
+// Whether a kept connector's end is still the plugin's to place.
+function isAutoEnd(connector: ConnectorNode, which: 'start' | 'end'): boolean {
+  const endpoint = which === 'start' ? connector.connectorStart : connector.connectorEnd
+  if ('magnet' in endpoint) return endpoint.magnet === 'CENTER'
+  if (!('position' in endpoint) || !('endpointNodeId' in endpoint)) return false
+  const stamped = storedAutoEnds(connector)[which]
+  return (
+    !!stamped &&
+    Math.abs(stamped.x - endpoint.position.x) < 0.5 &&
+    Math.abs(stamped.y - endpoint.position.y) < 0.5
+  )
+}
+
+function spreadConnectorEnds(ends: OwnedEnd[]): void {
+  const groups = new Map<string, Array<OwnedEnd & { side: EndSide; key: number }>>()
+  for (const end of ends) {
+    // Boundaries (GROUPs) keep CENTER: a point relative to a group's
+    // bounds isn't stable once its children move.
+    if (end.shape.type === 'GROUP' || end.shape.id === end.other.id) continue
+    const c = centerOf(end.shape)
+    const o = centerOf(end.other)
+    const dx = o.x - c.x
+    const dy = o.y - c.y
+    const vertical = Math.abs(dy) / Math.max(end.shape.height, 1) >= Math.abs(dx) / Math.max(end.shape.width, 1)
+    const side: EndSide = vertical ? (dy > 0 ? 'BOTTOM' : 'TOP') : dx > 0 ? 'RIGHT' : 'LEFT'
+    const groupKey = `${end.shape.id}|${side}`
+    const list = groups.get(groupKey) ?? []
+    list.push({ ...end, side, key: vertical ? o.x : o.y })
+    groups.set(groupKey, list)
+  }
+
+  const placed = new Map<ConnectorNode, { start?: Vector; end?: Vector }>()
+  for (const list of groups.values()) {
+    list.sort((a, b) => a.key - b.key)
+    list.forEach((end, i) => {
+      const t = (i + 1) / (list.length + 1)
+      const { width, height } = end.shape
+      const position: Vector =
+        end.side === 'TOP'
+          ? { x: width * t, y: 0 }
+          : end.side === 'BOTTOM'
+            ? { x: width * t, y: height }
+            : end.side === 'LEFT'
+              ? { x: 0, y: height * t }
+              : { x: width, y: height * t }
+      const endpoint: ConnectorEndpoint = { endpointNodeId: end.shape.id, position }
+      if (end.which === 'start') end.connector.connectorStart = endpoint
+      else end.connector.connectorEnd = endpoint
+      const record = placed.get(end.connector) ?? storedAutoEnds(end.connector)
+      record[end.which] = position
+      placed.set(end.connector, record)
+    })
+  }
+  for (const [connector, record] of placed) {
+    connector.setPluginData(AUTO_ENDS_KEY, JSON.stringify(record))
   }
 }
 
@@ -1767,7 +1880,9 @@ export async function importView(
       maxX: Math.max(acc.maxX, n.x + n.width),
       maxY: Math.max(acc.maxY, n.y + n.height),
     }),
-    { minX: view.bounds.x, minY: view.bounds.y, maxX: view.bounds.x + view.bounds.width, maxY: view.bounds.y + view.bounds.height }
+    view.nodes.length > 0
+      ? { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity }
+      : { minX: view.bounds.x, minY: view.bounds.y, maxX: view.bounds.x + view.bounds.width, maxY: view.bounds.y + view.bounds.height }
   )
   const contentWidth = box.maxX - box.minX
   const contentHeight = box.maxY - box.minY
@@ -1789,7 +1904,6 @@ export async function importView(
   }
   section.name = view.title || view.id
   section.setPluginData(VIEW_ID_KEY, view.id)
-  await appendBackLinks(section, parentLinks, existing?.backLinks)
 
   // Once a shape/connector is reparented into the section via appendChild,
   // Figma reinterprets its x/y as relative to the section's own top-left —
@@ -1849,19 +1963,33 @@ export async function importView(
   let skippedEdges = 0
   let firstEdgeError: string | null = null
   const usedConnectors = new Set<SceneNode>()
+  const ownedEnds: OwnedEnd[] = []
+
+  // A level boundary is a GROUP (see createLevelBoundaryNode); connect to
+  // its outline rectangle rather than the group itself, which FigJam
+  // doesn't reliably accept as a connector endpoint.
+  const attachable = (shape: SceneNode): SceneNode =>
+    isLevelBoundaryGroup(shape) ? boundaryOutline(shape) ?? shape : shape
 
   for (const edge of view.edges) {
-    const source = nodesById.get(edge.source)
-    const target = nodesById.get(edge.target)
-    if (!source || !target) continue
+    const sourceShape = nodesById.get(edge.source)
+    const targetShape = nodesById.get(edge.target)
+    if (!sourceShape || !targetShape) continue
+    const source = attachable(sourceShape)
+    const target = attachable(targetShape)
 
+    let created: ConnectorNode | null = null
     try {
       const reused = existing?.connectors.get(edge.id)
       if (reused && !reused.removed) {
         // Keep the very same connector node (and with it any routing the
         // plugin API can't read) and just move its ends onto the new shapes.
-        reused.connectorStart = repointEndpoint(reused.connectorStart, source.id)
-        reused.connectorEnd = repointEndpoint(reused.connectorEnd, target.id)
+        const autoStart = isAutoEnd(reused, 'start')
+        const autoEnd = isAutoEnd(reused, 'end')
+        reused.connectorStart = repointEndpoint(reused.connectorStart, source.id, reused.connectorLineType)
+        reused.connectorEnd = repointEndpoint(reused.connectorEnd, target.id, reused.connectorLineType)
+        if (autoStart) ownedEnds.push({ connector: reused, which: 'start', shape: source, other: target })
+        if (autoEnd) ownedEnds.push({ connector: reused, which: 'end', shape: target, other: source })
         await applyEdgeStyle(reused, edge, storedEdgeSignature(reused, edge))
         reused.setPluginData(EDGE_ID_KEY, edge.id)
         // Re-append so it stays drawn above the re-created shapes.
@@ -1871,30 +1999,65 @@ export async function importView(
         continue
       }
 
+      // Into the section right away, and removed again below if anything
+      // fails: a half-configured connector used to be left behind at page
+      // level in its default state (0,0 -> 200,0, both ends on the page),
+      // piling up one per failing edge on every sync.
       const connector = figma.createConnector()
+      created = connector
+      section.appendChild(connector)
+      // A new FigJam connector starts out ELBOWED, and elbowed connectors
+      // reject the CENTER magnet ("Elbowed connector endpoints may not use
+      // the CENTER magnet") - so straighten it before attaching the ends.
+      connector.connectorLineType = 'STRAIGHT'
       connector.connectorStart = { endpointNodeId: source.id, magnet: 'CENTER' }
       connector.connectorEnd = { endpointNodeId: target.id, magnet: 'CENTER' }
       await applyEdgeStyle(connector, edge, null)
       connector.setPluginData(EDGE_ID_KEY, edge.id)
-
-      section.appendChild(connector)
+      ownedEnds.push({ connector, which: 'start', shape: source, other: target })
+      ownedEnds.push({ connector, which: 'end', shape: target, other: source })
     } catch (err) {
       skippedEdges++
-      if (!firstEdgeError) firstEdgeError = err instanceof Error ? err.message : String(err)
+      const message = err instanceof Error ? err.message : String(err)
+      if (!firstEdgeError) firstEdgeError = `${edge.source} -> ${edge.target}: ${message}`
+      console.warn(`[extract-c4] edge ${edge.id} (${edge.source} -> ${edge.target}) skipped:`, message)
+      if (created && !created.removed) {
+        try {
+          created.remove()
+        } catch {
+          // already gone
+        }
+      }
     }
   }
 
   if (existing) {
     // Only now that every kept connector points at a new shape is it safe to
     // drop the old ones (and connectors of edges removed from the source).
-    for (const child of existing.previousChildren) {
-      if (!usedConnectors.has(child) && !child.removed) child.remove()
+    // Connectors first: FigJam deletes a connector on its own once a shape
+    // it's attached to is removed, so removing shapes first left stale
+    // references whose remove() threw "node does not exist" - which aborted
+    // the rest of the view (half the old shapes left as duplicates under
+    // the new ones). Each removal is also guarded on its own for the same
+    // reason.
+    const stale = existing.previousChildren.filter((child) => !usedConnectors.has(child))
+    stale.sort((a, b) => Number(b.type === 'CONNECTOR') - Number(a.type === 'CONNECTOR'))
+    for (const child of stale) {
+      try {
+        if (!child.removed) child.remove()
+      } catch {
+        // already gone (auto-deleted along with something removed before it)
+      }
     }
   }
   fitBoundariesToChildren(section, view, nodesById)
-  // Boundaries get a label band LikeC4's bounds don't account for (see
-  // fitBoundariesToChildren), so a fresh section can need a bit more room too.
-  growSectionToFit(section, 40)
+  try {
+    spreadConnectorEnds(ownedEnds)
+  } catch (err) {
+    console.warn('[extract-c4] could not spread connector ends', err)
+  }
+  fitSectionToContent(section, 40)
+  await appendBackLinks(section, parentLinks)
 
   figma.currentPage.selection = [section]
   figma.viewport.scrollAndZoomIntoView([section])
